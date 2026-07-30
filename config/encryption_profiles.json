@@ -1,0 +1,624 @@
+{
+  "encryption_profiles": {
+    "basic": {
+      "name": "基础加密",
+      "description": "适用于一般文件保护",
+      "security_level": 1,
+      "layers": [
+        {
+          "method": "aes256",
+          "mode": "GCM",
+          "key_size": 256,
+          "params": {
+            "iterations": 100000
+          }
+        }
+      ],
+      "performance": {
+        "speed": "fast",
+        "memory_usage": "low"
+      },
+      "threading": {
+        "auto_threading": true,
+        "max_threads": 2,
+        "parallel_threshold_mb": 1
+      }
+    },
+    "standard": {
+      "name": "标准加密",
+      "description": "平衡安全性和性能",
+      "security_level": 2,
+      "layers": [
+        {
+          "method": "chacha20",
+          "key_size": 256,
+          "params": {
+            "rounds": 20
+          }
+        },
+        {
+          "method": "aes256",
+          "mode": "CBC",
+          "key_size": 256,
+          "params": {
+            "iterations": 200000
+          }
+        }
+      ],
+      "performance": {
+        "speed": "medium",
+        "memory_usage": "medium"
+      },
+      "threading": {
+        "auto_threading": true,
+        "max_threads": 4,
+        "parallel_threshold_mb": 5
+      }
+    },
+    "high": {
+      "name": "高级加密",
+      "description": "适用于敏感数据保护",
+      "security_level": 3,
+      "layers": [
+        {
+          "method": "rsa",
+          "key_size": 4096,
+          "params": {
+            "padding": "OAEP"
+          }
+        },
+        {
+          "method": "chacha20",
+          "key_size": 256,
+          "params": {
+            "rounds": 20
+          }
+        },
+        {
+          "method": "aes256",
+          "mode": "GCM",
+          "key_size": 256,
+          "params": {
+            "iterations": 500000
+          }
+        },
+        {
+          "method": "custom",
+          "algorithm": "bit_shuffle",
+          "params": {
+            "seed": "random",
+            "rounds": 3
+          }
+        }
+      ],
+      "performance": {
+        "speed": "slow",
+        "memory_usage": "high"
+      },
+      "threading": {
+        "auto_threading": true,
+        "max_threads": 12,
+        "parallel_threshold_mb": 10
+      },
+      "gpu_settings": {
+        "enable_gpu": true,
+        "gpu_threshold_mb": 5,
+        "preferred_algorithms": [
+          "aes256",
+          "chacha20"
+        ]
+      }
+    },
+    "stealth": {
+      "name": "隐蔽加密",
+      "description": "数据隐藏和加密结合",
+      "security_level": 3,
+      "layers": [
+        {
+          "method": "aes256",
+          "mode": "GCM",
+          "key_size": 256,
+          "params": {
+            "iterations": 300000
+          }
+        },
+        {
+          "method": "custom",
+          "algorithm": "matrix_cipher",
+          "params": {
+            "matrix_size": 8,
+            "key_schedule": "dynamic"
+          }
+        },
+        {
+          "method": "steganography",
+          "cover_type": "image",
+          "params": {
+            "format": "PNG",
+            "channel": "LSB",
+            "distribution": "random"
+          }
+        }
+      ],
+      "performance": {
+        "speed": "very_slow",
+        "memory_usage": "high"
+      },
+      "threading": {
+        "auto_threading": false,
+        "max_threads": 2,
+        "parallel_threshold_mb": 50
+      }
+    },
+    "paranoid": {
+      "name": "偏执级加密",
+      "description": "最高级别的安全保护",
+      "security_level": 5,
+      "layers": [
+        {
+          "method": "custom",
+          "algorithm": "pre_scramble",
+          "params": {
+            "scramble_rounds": 5
+          }
+        },
+        {
+          "method": "rsa",
+          "key_size": 4096,
+          "params": {
+            "padding": "OAEP",
+            "hash_algorithm": "SHA256"
+          }
+        },
+        {
+          "method": "aes256",
+          "mode": "GCM",
+          "key_size": 256,
+          "params": {
+            "iterations": 1000000,
+            "key_derivation": "argon2"
+          }
+        },
+        {
+          "method": "chacha20",
+          "key_size": 256,
+          "params": {
+            "rounds": 20,
+            "cascade": true
+          }
+        },
+        {
+          "method": "custom",
+          "algorithm": "bit_shuffle",
+          "params": {
+            "seed": "random",
+            "rounds": 5,
+            "multi_pass": true
+          }
+        },
+        {
+          "method": "custom",
+          "algorithm": "matrix_cipher",
+          "params": {
+            "matrix_size": 16,
+            "key_schedule": "complex"
+          }
+        },
+        {
+          "method": "steganography",
+          "cover_type": "multi_image",
+          "params": {
+            "formats": [
+              "PNG",
+              "JPEG"
+            ],
+            "distribution": "adaptive",
+            "redundancy": 3
+          }
+        },
+        {
+          "method": "custom",
+          "algorithm": "final_obfuscation",
+          "params": {
+            "obfuscation_level": "maximum"
+          }
+        }
+      ],
+      "performance": {
+        "speed": "extremely_slow",
+        "memory_usage": "very_high"
+      },
+      "threading": {
+        "auto_threading": true,
+        "max_threads": 12,
+        "parallel_threshold_mb": 10
+      },
+      "gpu_settings": {
+        "enable_gpu": true,
+        "gpu_threshold_mb": 10,
+        "preferred_algorithms": [
+          "aes256",
+          "chacha20",
+          "matrix_cipher"
+        ]
+      }
+    },
+    "parallel_fast": {
+      "name": "并行快速加密",
+      "description": "大文件的高速加密",
+      "security_level": 2,
+      "parallel": true,
+      "chunk_count": 4,
+      "layers": [
+        {
+          "method": "aes256",
+          "mode": "CTR",
+          "key_size": 256,
+          "params": {
+            "parallel_blocks": 8
+          }
+        },
+        {
+          "method": "chacha20",
+          "key_size": 256,
+          "params": {
+            "parallel_streams": 4
+          }
+        }
+      ],
+      "performance": {
+        "speed": "very_fast",
+        "memory_usage": "medium"
+      }
+    },
+    "blowfish_secure": {
+      "name": "Blowfish安全加密",
+      "description": "使用Blowfish算法的快速安全加密",
+      "security_level": 2,
+      "layers": [
+        {
+          "method": "blowfish",
+          "key_size": 448,
+          "mode": "CBC",
+          "params": {
+            "iterations": 150000
+          }
+        },
+        {
+          "method": "custom",
+          "algorithm": "bit_shuffle",
+          "params": {
+            "seed": "random",
+            "rounds": 2
+          }
+        }
+      ],
+      "performance": {
+        "speed": "fast",
+        "memory_usage": "low"
+      },
+      "threading": {
+        "auto_threading": true,
+        "max_threads": 4,
+        "parallel_threshold_mb": 2
+      }
+    },
+    "salsa20_stream": {
+      "name": "Salsa20流加密",
+      "description": "高性能流密码加密",
+      "security_level": 2,
+      "layers": [
+        {
+          "method": "salsa20",
+          "key_size": 256,
+          "params": {
+            "rounds": 20
+          }
+        },
+        {
+          "method": "custom",
+          "algorithm": "rotate_cipher",
+          "params": {
+            "rotation": "random"
+          }
+        }
+      ],
+      "performance": {
+        "speed": "very_fast",
+        "memory_usage": "low"
+      },
+      "threading": {
+        "auto_threading": true,
+        "max_threads": 6,
+        "parallel_threshold_mb": 1
+      }
+    },
+    "twofish_strong": {
+      "name": "Twofish强加密",
+      "description": "使用Twofish算法的强安全加密",
+      "security_level": 3,
+      "layers": [
+        {
+          "method": "twofish",
+          "key_size": 256,
+          "params": {
+            "rounds": 16
+          }
+        },
+        {
+          "method": "aes256",
+          "mode": "GCM",
+          "key_size": 256,
+          "params": {
+            "iterations": 300000
+          }
+        },
+        {
+          "method": "custom",
+          "algorithm": "matrix_cipher",
+          "params": {
+            "matrix_size": 8,
+            "key_schedule": "dynamic"
+          }
+        }
+      ],
+      "performance": {
+        "speed": "medium",
+        "memory_usage": "medium"
+      },
+      "threading": {
+        "auto_threading": true,
+        "max_threads": 6,
+        "parallel_threshold_mb": 5
+      }
+    },
+    "multi_algorithm": {
+      "name": "多算法混合",
+      "description": "使用多种算法的综合加密",
+      "security_level": 4,
+      "layers": [
+        {
+          "method": "custom",
+          "algorithm": "pre_scramble",
+          "params": {
+            "scramble_rounds": 3
+          }
+        },
+        {
+          "method": "salsa20",
+          "key_size": 256
+        },
+        {
+          "method": "blowfish",
+          "key_size": 256,
+          "mode": "CBC"
+        },
+        {
+          "method": "twofish",
+          "key_size": 256
+        },
+        {
+          "method": "aes256",
+          "mode": "GCM",
+          "key_size": 256
+        },
+        {
+          "method": "custom",
+          "algorithm": "final_obfuscation",
+          "params": {
+            "obfuscation_level": "high"
+          }
+        }
+      ],
+      "performance": {
+        "speed": "slow",
+        "memory_usage": "high"
+      },
+      "threading": {
+        "auto_threading": true,
+        "max_threads": 12,
+        "parallel_threshold_mb": 10
+      },
+      "gpu_settings": {
+        "enable_gpu": true,
+        "gpu_threshold_mb": 5,
+        "preferred_algorithms": [
+          "aes256",
+          "chacha20"
+        ]
+      }
+    },
+    "paranoid_gpu": {
+      "name": "偏执级加密 (GPU优化)",
+      "description": "最高级别的安全保护，针对GPU加速优化",
+      "security_level": 5,
+      "layers": [
+        {
+          "method": "custom",
+          "algorithm": "matrix_cipher",
+          "params": {
+            "matrix_size": 8,
+            "key_schedule": "simple"
+          }
+        },
+        {
+          "method": "aes256",
+          "mode": "GCM",
+          "key_size": 256,
+          "params": {
+            "iterations": 500000,
+            "key_derivation": "argon2"
+          }
+        },
+        {
+          "method": "chacha20",
+          "key_size": 256,
+          "params": {
+            "rounds": 20,
+            "cascade": true
+          }
+        },
+        {
+          "method": "custom",
+          "algorithm": "matrix_cipher",
+          "params": {
+            "matrix_size": 16,
+            "key_schedule": "complex"
+          }
+        },
+        {
+          "method": "salsa20",
+          "key_size": 256
+        },
+        {
+          "method": "blowfish",
+          "key_size": 256,
+          "mode": "CBC"
+        },
+        {
+          "method": "twofish",
+          "key_size": 256
+        }
+      ],
+      "performance": {
+        "speed": "slow",
+        "memory_usage": "high"
+      },
+      "threading": {
+        "auto_threading": true,
+        "max_threads": 12,
+        "parallel_threshold_mb": 10
+      },
+      "gpu_settings": {
+        "enable_gpu": true,
+        "gpu_threshold_mb": 10,
+        "preferred_algorithms": [
+          "aes256",
+          "chacha20",
+          "salsa20",
+          "matrix_cipher",
+          "blowfish",
+          "twofish"
+        ]
+      }
+    }
+  },
+  "custom_algorithms": {
+    "bit_shuffle": {
+      "description": "位级数据混洗",
+      "parameters": [
+        "seed",
+        "rounds",
+        "multi_pass"
+      ],
+      "security_level": 2,
+      "performance": "fast"
+    },
+    "matrix_cipher": {
+      "description": "矩阵变换加密",
+      "parameters": [
+        "matrix_size",
+        "key_schedule"
+      ],
+      "security_level": 3,
+      "performance": "medium"
+    },
+    "pre_scramble": {
+      "description": "预处理数据混淆",
+      "parameters": [
+        "scramble_rounds"
+      ],
+      "security_level": 2,
+      "performance": "fast"
+    },
+    "final_obfuscation": {
+      "description": "最终数据混淆",
+      "parameters": [
+        "obfuscation_level"
+      ],
+      "security_level": 4,
+      "performance": "slow"
+    },
+    "simple_xor": {
+      "description": "简单XOR加密",
+      "parameters": [
+        "key"
+      ],
+      "security_level": 1,
+      "performance": "very_fast"
+    },
+    "rotate_cipher": {
+      "description": "旋转密码",
+      "parameters": [
+        "rotation"
+      ],
+      "security_level": 1,
+      "performance": "very_fast"
+    }
+  },
+  "algorithm_categories": {
+    "symmetric": {
+      "description": "对称加密算法",
+      "algorithms": [
+        "aes256",
+        "blowfish",
+        "twofish"
+      ],
+      "characteristics": [
+        "fast",
+        "secure",
+        "widely_used"
+      ]
+    },
+    "stream": {
+      "description": "流密码算法",
+      "algorithms": [
+        "chacha20",
+        "salsa20"
+      ],
+      "characteristics": [
+        "very_fast",
+        "low_memory",
+        "real_time"
+      ]
+    },
+    "asymmetric": {
+      "description": "非对称加密算法",
+      "algorithms": [
+        "rsa"
+      ],
+      "characteristics": [
+        "secure",
+        "key_exchange",
+        "slow"
+      ]
+    },
+    "custom": {
+      "description": "自定义算法",
+      "algorithms": [
+        "bit_shuffle",
+        "matrix_cipher",
+        "pre_scramble",
+        "final_obfuscation",
+        "simple_xor",
+        "rotate_cipher"
+      ],
+      "characteristics": [
+        "flexible",
+        "obfuscation",
+        "anti_analysis"
+      ]
+    },
+    "steganography": {
+      "description": "隐写术",
+      "algorithms": [
+        "steganography"
+      ],
+      "characteristics": [
+        "hidden",
+        "covert",
+        "anti_detection"
+      ]
+    }
+  }
+}

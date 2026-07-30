@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Security Settings Schema",
+  "description": "安全设置的JSON Schema",
+  "type": "object",
+  "required": ["security_settings"],
+  "properties": {
+    "security_settings": {
+      "type": "object",
+      "properties": {
+        "key_management": {
+          "type": "object",
+          "properties": {
+            "key_derivation": {
+              "type": "object",
+              "properties": {
+                "algorithm": {
+                  "type": "string",
+                  "enum": ["PBKDF2", "Argon2", "scrypt"]
+                },
+                "iterations": {
+                  "type": "integer",
+                  "minimum": 1000
+                }
+              }
+            }
+          }
+        },
+        "anti_reverse_engineering": {
+          "type": "object",
+          "properties": {
+            "code_obfuscation": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "level": {
+                  "type": "string",
+                  "enum": ["low", "medium", "high"]
+                }
+              }
+            }
+          }
+        },
+        "performance": {
+          "type": "object",
+          "properties": {
+            "threading": {
+              "type": "object",
+              "properties": {
+                "max_threads": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "memory": {
+              "type": "object",
+              "properties": {
+                "buffer_size_mb": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

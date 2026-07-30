@@ -1,0 +1,131 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Encryption Profiles Schema",
+  "description": "加密配置文件的JSON Schema",
+  "type": "object",
+  "required": ["encryption_profiles"],
+  "properties": {
+    "encryption_profiles": {
+      "type": "object",
+      "description": "加密配置集合",
+      "additionalProperties": {
+        "$ref": "#/definitions/profile"
+      }
+    },
+    "custom_algorithms": {
+      "type": "object",
+      "description": "自定义算法定义"
+    },
+    "algorithm_categories": {
+      "type": "object",
+      "description": "算法分类"
+    }
+  },
+  "definitions": {
+    "profile": {
+      "type": "object",
+      "required": ["name", "security_level", "layers"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "配置名称"
+        },
+        "description": {
+          "type": "string",
+          "description": "配置描述"
+        },
+        "security_level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "description": "安全级别 (1-5)"
+        },
+        "layers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/layer"
+          },
+          "description": "加密层配置"
+        },
+        "performance": {
+          "type": "object",
+          "properties": {
+            "speed": {
+              "type": "string",
+              "enum": ["very_fast", "fast", "medium", "slow", "very_slow", "extremely_slow"]
+            },
+            "memory_usage": {
+              "type": "string",
+              "enum": ["low", "medium", "high", "very_high"]
+            }
+          }
+        },
+        "threading": {
+          "$ref": "#/definitions/threading_config"
+        },
+        "gpu_settings": {
+          "$ref": "#/definitions/gpu_settings"
+        }
+      }
+    },
+    "layer": {
+      "type": "object",
+      "required": ["method"],
+      "properties": {
+        "method": {
+          "type": "string",
+          "description": "加密方法"
+        },
+        "algorithm": {
+          "type": "string",
+          "description": "算法名称"
+        },
+        "mode": {
+          "type": "string",
+          "description": "加密模式"
+        },
+        "key_size": {
+          "type": "integer",
+          "description": "密钥大小"
+        },
+        "params": {
+          "type": "object",
+          "description": "算法参数"
+        }
+      }
+    },
+    "threading_config": {
+      "type": "object",
+      "properties": {
+        "auto_threading": {
+          "type": "boolean"
+        },
+        "max_threads": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "parallel_threshold_mb": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "gpu_settings": {
+      "type": "object",
+      "properties": {
+        "enable_gpu": {
+          "type": "boolean"
+        },
+        "gpu_threshold_mb": {
+          "type": "number"
+        },
+        "preferred_algorithms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

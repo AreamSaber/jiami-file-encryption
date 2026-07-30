@@ -1,0 +1,21 @@
+{
+  "name": "threaded_layered_test",
+  "description": "强制threaded_layered策略测试",
+  "layers": [
+    {
+      "method": "chacha20",
+      "algorithm": "chacha20"
+    },
+    {
+      "method": "aes256",
+      "algorithm": "aes256",
+      "mode": "CBC"
+    }
+  ],
+  "strategy": "threaded_layered",
+  "threading": {
+    "auto_threading": true,
+    "max_threads": 6,
+    "parallel_threshold_mb": 0.5
+  }
+}

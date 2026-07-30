@@ -1,0 +1,198 @@
+{
+  "encryption_profiles": {
+    "high_gpu": {
+      "name": "高级加密 (GPU优化)",
+      "description": "适用于敏感数据保护 - 针对GPU加速优化",
+      "security_level": 3,
+      "layers": [
+        {
+          "method": "rsa",
+          "key_size": 4096,
+          "params": {
+            "padding": "OAEP"
+          }
+        },
+        {
+          "method": "chacha20",
+          "key_size": 256,
+          "params": {
+            "rounds": 20
+          }
+        },
+        {
+          "method": "aes256",
+          "mode": "GCM",
+          "key_size": 256,
+          "params": {
+            "iterations": 500000
+          }
+        },
+        {
+          "method": "custom",
+          "algorithm": "matrix_cipher",
+          "params": {
+            "matrix_size": 8,
+            "key_schedule": "simple"
+          }
+        }
+      ],
+      "performance": {
+        "speed": "slow",
+        "memory_usage": "high"
+      },
+      "threading": {
+        "auto_threading": true,
+        "max_threads": 12,
+        "parallel_threshold_mb": 10
+      }
+    },
+    "paranoid_gpu": {
+      "name": "偏执级加密 (GPU优化)",
+      "description": "最高级别的安全保护 - 针对GPU加速优化",
+      "security_level": 5,
+      "layers": [
+        {
+          "method": "custom",
+          "algorithm": "matrix_cipher",
+          "params": {
+            "matrix_size": 8,
+            "key_schedule": "simple"
+          }
+        },
+        {
+          "method": "rsa",
+          "key_size": 4096,
+          "params": {
+            "padding": "OAEP",
+            "hash_algorithm": "SHA256"
+          }
+        },
+        {
+          "method": "aes256",
+          "mode": "GCM",
+          "key_size": 256,
+          "params": {
+            "iterations": 1000000,
+            "key_derivation": "argon2"
+          }
+        },
+        {
+          "method": "chacha20",
+          "key_size": 256,
+          "params": {
+            "rounds": 20,
+            "cascade": true
+          }
+        },
+        {
+          "method": "custom",
+          "algorithm": "matrix_cipher",
+          "params": {
+            "matrix_size": 8,
+            "key_schedule": "simple"
+          }
+        },
+        {
+          "method": "custom",
+          "algorithm": "matrix_cipher",
+          "params": {
+            "matrix_size": 16,
+            "key_schedule": "complex"
+          }
+        },
+        {
+          "method": "steganography",
+          "cover_type": "multi_image",
+          "params": {
+            "formats": [
+              "PNG",
+              "JPEG"
+            ],
+            "distribution": "adaptive",
+            "redundancy": 3
+          }
+        },
+        {
+          "method": "custom",
+          "algorithm": "matrix_cipher",
+          "params": {
+            "matrix_size": 8,
+            "key_schedule": "simple"
+          }
+        }
+      ],
+      "performance": {
+        "speed": "extremely_slow",
+        "memory_usage": "very_high"
+      },
+      "threading": {
+        "auto_threading": true,
+        "max_threads": 12,
+        "parallel_threshold_mb": 10
+      }
+    },
+    "multi_algorithm_gpu": {
+      "name": "多算法混合 (GPU优化)",
+      "description": "使用多种算法的综合加密 - 针对GPU加速优化",
+      "security_level": 4,
+      "layers": [
+        {
+          "method": "custom",
+          "algorithm": "matrix_cipher",
+          "params": {
+            "matrix_size": 8,
+            "key_schedule": "simple"
+          }
+        },
+        {
+          "method": "salsa20",
+          "key_size": 256
+        },
+        {
+          "method": "blowfish",
+          "key_size": 256,
+          "mode": "CBC"
+        },
+        {
+          "method": "twofish",
+          "key_size": 256
+        },
+        {
+          "method": "aes256",
+          "mode": "GCM",
+          "key_size": 256
+        },
+        {
+          "method": "custom",
+          "algorithm": "matrix_cipher",
+          "params": {
+            "matrix_size": 8,
+            "key_schedule": "simple"
+          }
+        }
+      ],
+      "performance": {
+        "speed": "slow",
+        "memory_usage": "high"
+      },
+      "threading": {
+        "auto_threading": true,
+        "max_threads": 12,
+        "parallel_threshold_mb": 10
+      }
+    }
+  },
+  "gpu_settings": {
+    "enable_gpu": true,
+    "gpu_threshold_mb": 10,
+    "supported_algorithms": [
+      "aes256",
+      "chacha20",
+      "salsa20",
+      "matrix_cipher",
+      "blowfish",
+      "twofish"
+    ],
+    "fallback_to_cpu": true
+  }
+}

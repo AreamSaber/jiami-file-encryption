@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+.venv*/
+venv/
+env/
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# Test / coverage
+.pytest_cache/
+.hypothesis/
+.coverage
+htmlcov/
+.mypy_cache/
+.tox/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs & runtime outputs
+*.log
+logs/
+tests/test_output/
+*.encrypted
+*_decryptor.py
+*_decryptor.exe
+
+# AI / agent tooling
+.ace-tool/
+.claude/
+.cursor/
+.codex/
+.kiro/
+.agent/
+.agents/
+.trae/
+.windsurf/
+.roo/
+.gemini/
+.shared/
+openspec/
+AGENTS.md
+CLAUDE.md
+nu_
+
+# Archive / debug / wheels (not product source)
+_archive/
+*.whl
+*.tar.gz
+
+# Local cleanup / one-off reports
+CLEANUP_REPORT.md
