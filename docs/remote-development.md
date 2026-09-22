@@ -20,8 +20,8 @@ VS Code 已连接不表示 Codex 应用已添加同一主机，两者需各配�
 - **jiami: 环境检查**：检查虚拟环境和两个已知缺失源文件；缺失时返回非零。
 - **jiami: 配置与异常测试**：快速测试四个配置/异常文件；不代表加解密流程通过。
 - **jiami: 完整测试（当前缺源码）**：完整 tests 目录；保留真实的失败状态。
-- **jiami: Claude 架构方案**：输入需求，分析 HEAD 已提交内容。
-- **jiami: Claude 审查已提交变更**：先更新 origin 引用，再审查 origin/master 到 HEAD 的变更。
+- **jiami: Claude 架构方案**：保留的可选脚本入口；当前采用人工交接，不自动运行。
+- **jiami: Claude 审查已提交变更**：保留的可选入口；不代表自动交接流程已经完成。
 
 F5 默认可调试配置与异常测试。主程序调试需要先恢复缺失模块。
 Python 和 Python Debugger 扩展应安装在 SSH 远端；工作区已声明推荐扩展。
@@ -47,10 +47,10 @@ git fetch origin
 
 1. 你给需求。小修复由 Codex 直接实现；架构、密钥、格式和关键技术变更先请 Claude 设计。
 2. Codex 在工作分支实现并执行适当测试，记录通过、失败和未验证项。
-3. 提交变更，再运行 Claude 审查。审查内容是固定提交快照，不包含未提交修改。
+3. Codex 提供英文审查问题、固定提交范围和测试证据，由你手动交给 Claude，再将答复贴回。
 4. Codex 处理审查意见，必要时针对新提交复审，形成 PR，由你决定合并。
 
-Claude 使用家宽机现有订阅登录。审查命令启用 safe mode、restricted 和仅 Read/Glob/Grep 工具，
+Claude 使用家宽机现有订阅登录。当前 Codex 不自动调用 Claude。若你主动选择保留的脚本入口，审查命令启用 safe mode、restricted 和仅 Read/Glob/Grep 工具，
 不加载项目 hooks/插件/MCP，不授予 Bash 或写入工具；由包装脚本保存报告到 `docs/reviews/`。
 这是工具权限限制，不是额外的操作系统隔离。不要将凭据或真实私密待加密数据提交进 Git 快照。
 失败或超时不表示审查通过，命令返回非零；应先看错误再决定是否重试。
@@ -63,7 +63,7 @@ Claude 使用家宽机现有订阅登录。审查命令启用 safe mode、restri
 - 配置/异常测试子集 `tools/dev.py test-core`：40 passed。
 - 完整 `pytest tests` 在收集阶段因缺失 `src/encryptor/key_injector.py` 和
   `src/decryptor/base_decryptor.py` 失败；`main.py --help` 也因前者失败。
-- 用户决定先完成开发底座，暂不重写上述模块。环境检查会继续准确报告它们缺失。
+- 该基线阶段用户决定先完成开发底座。当前已确认的后续安全重构范围见 [安全重构决策](security-redesign.md)，缺失模块仍会据实报告。
 - GUI、GPU、Windows 打包和完整加解密均未在本轮验证。
 
 Linux 家宽机承担编辑、测试和审查，不能直接替代 Windows 窗口与本机显卡验收。

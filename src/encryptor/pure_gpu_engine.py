@@ -134,7 +134,7 @@ class PureGPUEngine(HybridEncryptionEngine):
                     'mode': 'GCM',
                     'key_size': 256,
                     'force_gpu': True,
-                    'params': {'iterations': 200000 * self.security_level}
+                    'params': {}
                 })
             elif algorithm == 'chacha20':
                 layers.append({

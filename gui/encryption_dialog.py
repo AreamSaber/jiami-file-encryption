@@ -150,14 +150,10 @@ class EncryptionDialog(QDialog):
         key_group = QGroupBox("密钥设置")
         key_layout = QFormLayout(key_group)
 
-        self.key_derivation = QComboBox()
-        self.key_derivation.addItems(["PBKDF2", "Scrypt", "Argon2", "自动生成"])
-        key_layout.addRow("密钥派生:", self.key_derivation)
-
-        self.iterations = QSpinBox()
-        self.iterations.setRange(1000, 1000000)
-        self.iterations.setValue(100000)
-        key_layout.addRow("迭代次数:", self.iterations)
+        self.key_generation = QComboBox()
+        self.key_generation.addItem("随机生成", "random")
+        self.key_generation.setToolTip("当前仅支持随机密钥，不使用口令派生")
+        key_layout.addRow("密钥生成:", self.key_generation)
 
         layout.addWidget(key_group)
 
@@ -265,34 +261,19 @@ class EncryptionDialog(QDialog):
         security_widget = QWidget()
         layout = QVBoxLayout(security_widget)
 
-        # 安全保护
-        protection_group = QGroupBox("安全保护")
-        protection_layout = QFormLayout(protection_group)
-
-        self.anti_debug = QCheckBox("反调试保护")
-        self.anti_debug.setChecked(True)
-        protection_layout.addRow(self.anti_debug)
-
-        self.anti_vm = QCheckBox("反虚拟机检测")
-        self.anti_vm.setChecked(True)
-        protection_layout.addRow(self.anti_vm)
-
-        self.code_obfuscation = QCheckBox("代码混淆")
-        self.code_obfuscation.setChecked(True)
-        protection_layout.addRow(self.code_obfuscation)
-
-        layout.addWidget(protection_group)
-
         # 完整性检查
         integrity_group = QGroupBox("完整性检查")
         integrity_layout = QFormLayout(integrity_group)
 
         self.enable_checksum = QCheckBox("启用校验和")
-        self.enable_checksum.setChecked(True)
+        self.enable_checksum.setChecked(False)
+        self.enable_checksum.setEnabled(False)
+        self.enable_checksum.setToolTip("当前版本暂不支持自动文件校验")
         integrity_layout.addRow(self.enable_checksum)
 
         self.checksum_algorithm = QComboBox()
-        self.checksum_algorithm.addItems(["SHA-256", "SHA-512", "MD5", "CRC32"])
+        self.checksum_algorithm.addItems(["SHA-256"])
+        self.checksum_algorithm.setEnabled(False)
         integrity_layout.addRow("校验算法:", self.checksum_algorithm)
 
         layout.addWidget(integrity_group)
@@ -302,6 +283,8 @@ class EncryptionDialog(QDialog):
         access_layout = QFormLayout(access_group)
 
         self.password_protect = QCheckBox("密码保护")
+        self.password_protect.setEnabled(False)
+        self.password_protect.setToolTip("当前版本暂不支持口令加密")
         access_layout.addRow(self.password_protect)
 
         self.time_limit = QCheckBox("时间限制")
@@ -397,8 +380,7 @@ class EncryptionDialog(QDialog):
         if config['enable_compression']:
             config_text += f"压缩级别: {config['compression_level']}\n"
 
-        config_text += f"密钥派生: {config['key_derivation']}\n"
-        config_text += f"迭代次数: {config['iterations']}\n"
+        config_text += "密钥生成: 随机生成\n"
 
         config_text += f"启用隐写术: {'是' if config['enable_steganography'] else '否'}\n"
         if config['enable_steganography']:
@@ -434,8 +416,7 @@ class EncryptionDialog(QDialog):
             'layer_count': self.layer_count.value(),
             'enable_compression': self.enable_compression.isChecked(),
             'compression_level': self.compression_level.value(),
-            'key_derivation': self.key_derivation.currentText(),
-            'iterations': self.iterations.value(),
+            'key_generation': self.key_generation.currentData(),
             'enable_steganography': self.enable_steganography.isChecked(),
             'steganography_method': self.steganography_method.currentText(),
             'enable_gpu': self.enable_gpu.isChecked(),
@@ -447,9 +428,6 @@ class EncryptionDialog(QDialog):
             'create_backup': self.create_backup.isChecked(),
             'split_large_files': self.split_large_files.isChecked(),
             'max_file_size': self.max_file_size.value(),
-            'anti_debug': self.anti_debug.isChecked(),
-            'anti_vm': self.anti_vm.isChecked(),
-            'code_obfuscation': self.code_obfuscation.isChecked(),
             'enable_checksum': self.enable_checksum.isChecked(),
             'checksum_algorithm': self.checksum_algorithm.currentText(),
             'password_protect': self.password_protect.isChecked(),

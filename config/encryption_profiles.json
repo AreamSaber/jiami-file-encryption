@@ -9,9 +9,7 @@
           "method": "aes256",
           "mode": "GCM",
           "key_size": 256,
-          "params": {
-            "iterations": 100000
-          }
+          "params": {}
         }
       ],
       "performance": {
@@ -40,9 +38,7 @@
           "method": "aes256",
           "mode": "CBC",
           "key_size": 256,
-          "params": {
-            "iterations": 200000
-          }
+          "params": {}
         }
       ],
       "performance": {
@@ -78,9 +74,7 @@
           "method": "aes256",
           "mode": "GCM",
           "key_size": 256,
-          "params": {
-            "iterations": 500000
-          }
+          "params": {}
         },
         {
           "method": "custom",
@@ -118,9 +112,7 @@
           "method": "aes256",
           "mode": "GCM",
           "key_size": 256,
-          "params": {
-            "iterations": 300000
-          }
+          "params": {}
         },
         {
           "method": "custom",
@@ -174,10 +166,7 @@
           "method": "aes256",
           "mode": "GCM",
           "key_size": 256,
-          "params": {
-            "iterations": 1000000,
-            "key_derivation": "argon2"
-          }
+          "params": {}
         },
         {
           "method": "chacha20",
@@ -280,9 +269,7 @@
           "method": "blowfish",
           "key_size": 448,
           "mode": "CBC",
-          "params": {
-            "iterations": 150000
-          }
+          "params": {}
         },
         {
           "method": "custom",
@@ -349,9 +336,7 @@
           "method": "aes256",
           "mode": "GCM",
           "key_size": 256,
-          "params": {
-            "iterations": 300000
-          }
+          "params": {}
         },
         {
           "method": "custom",
@@ -445,10 +430,7 @@
           "method": "aes256",
           "mode": "GCM",
           "key_size": 256,
-          "params": {
-            "iterations": 500000,
-            "key_derivation": "argon2"
-          }
+          "params": {}
         },
         {
           "method": "chacha20",

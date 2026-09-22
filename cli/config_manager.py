@@ -172,14 +172,6 @@ class ConfigManager:
         if enable_steganography in ['y', 'yes']:
             config["steganography"] = {"enabled": True, "method": "lsb_image"}
         
-        enable_security = input("启用安全保护? [Y/n]: ").strip().lower()
-        if enable_security not in ['n', 'no']:
-            config["security"] = {
-                "anti_debug": True,
-                "anti_vm": True,
-                "code_obfuscation": True
-            }
-        
         return config
     
     def _create_default_profile(self, profile_name: str) -> Dict[str, Any]:
@@ -194,12 +186,7 @@ class ConfigManager:
                     "algorithm": "aes256",
                     "mode": "GCM"
                 }
-            ],
-            "security": {
-                "anti_debug": True,
-                "anti_vm": True,
-                "code_obfuscation": True
-            }
+            ]
         }
     
     def _save_profile(self, profile_name: str, profile_config: Dict[str, Any]) -> bool:
