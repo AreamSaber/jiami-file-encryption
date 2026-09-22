@@ -1,0 +1,34 @@
+{
+  "folders": [{"path": ".", "name": "jiami · remote"}],
+  "settings": {
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+    "python.testing.pytestEnabled": true,
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestArgs": ["tests"],
+    "files.watcherExclude": {"**/.venv/**": true, "**/.hypothesis/**": true},
+    "search.exclude": {"**/.venv": true, "**/.hypothesis": true},
+    "terminal.integrated.cwd": "${workspaceFolder}"
+  },
+  "extensions": {"recommendations": ["ms-python.python", "ms-python.debugpy"]},
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {"label": "jiami: 环境检查", "type": "process", "command": "${workspaceFolder}/.venv/bin/python", "args": ["tools/dev.py", "doctor"], "problemMatcher": []},
+      {"label": "jiami: 配置与异常测试", "type": "process", "command": "${workspaceFolder}/.venv/bin/python", "args": ["tools/dev.py", "test-core"], "group": {"kind": "test", "isDefault": true}, "problemMatcher": []},
+      {"label": "jiami: 完整测试（当前缺源码）", "type": "process", "command": "${workspaceFolder}/.venv/bin/python", "args": ["tools/dev.py", "test"], "group": "test", "problemMatcher": []},
+      {"label": "jiami: Claude 架构方案", "type": "process", "command": "${workspaceFolder}/.venv/bin/python", "args": ["tools/architect.py", "plan", "--question", "${input:architectureQuestion}"], "problemMatcher": []},
+      {"label": "jiami: Claude 审查已提交变更", "type": "process", "command": "${workspaceFolder}/.venv/bin/python", "args": ["tools/architect.py", "review", "--base", "origin/master", "--question", "${input:reviewQuestion}"], "problemMatcher": []}
+    ],
+    "inputs": [
+      {"id": "architectureQuestion", "type": "promptString", "description": "需要 Claude 设计什么？", "default": "根据当前模块边界给出本次需求的实现方案和验收条件。"},
+      {"id": "reviewQuestion", "type": "promptString", "description": "这次审查重点是什么？", "default": "审查本分支相对 master 的变更，报告具体缺陷和验证缺口。"}
+    ]
+  },
+  "launch": {
+    "version": "0.2.0",
+    "configurations": [
+      {"name": "jiami: 调试配置与异常测试", "type": "debugpy", "request": "launch", "module": "pytest", "args": ["tests/unit/test_exceptions.py", "tests/unit/test_config_manager.py", "-q"], "console": "integratedTerminal", "justMyCode": true},
+      {"name": "jiami: CLI（需先恢复缺失源码）", "type": "debugpy", "request": "launch", "program": "${workspaceFolder}/main.py", "args": ["--cli", "--list-profiles"], "console": "integratedTerminal", "justMyCode": true}
+    ]
+  }
+}
