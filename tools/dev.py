@@ -27,6 +27,8 @@ def main():
     args = parser.parse_args()
     extra = args.args[1:] if args.args[:1] == ['--'] else args.args
     uv = shutil.which('uv') or str(Path.home() / '.local/bin/uv')
+    if args.command in ('setup', 'lock') and not Path(uv).is_file():
+        parser.error('uv is required. Install it from https://docs.astral.sh/uv/getting-started/installation/')
     if args.command == 'setup':
         if not PYTHON.exists():
             version = (ROOT / '.python-version').read_text(encoding='utf-8').strip()
@@ -46,7 +48,7 @@ def main():
                         '--only-binary', ':all:', source, '-o', ROOT / 'requirements-remote.lock'])
     if args.command == 'doctor':
         missing = []
-        for label, path in [('Python venv', PYTHON),
+        for label, path in [('uv', Path(uv)), ('Python venv', PYTHON),
                             ('key injector', ROOT / 'src/encryptor/key_injector.py'),
                             ('base decryptor', ROOT / 'src/decryptor/base_decryptor.py')]:
             present = path.is_file()

@@ -21,7 +21,7 @@ VS Code 已连接不表示 Codex 应用已添加同一主机，两者需各配�
 - **jiami: 配置与异常测试**：快速测试四个配置/异常文件；不代表加解密流程通过。
 - **jiami: 完整测试（当前缺源码）**：完整 tests 目录；保留真实的失败状态。
 - **jiami: Claude 架构方案**：输入需求，分析 HEAD 已提交内容。
-- **jiami: Claude 审查已提交变更**：审查 origin/master 到 HEAD 的变更。
+- **jiami: Claude 审查已提交变更**：先更新 origin 引用，再审查 origin/master 到 HEAD 的变更。
 
 F5 默认可调试配置与异常测试。主程序调试需要先恢复缺失模块。
 Python 和 Python Debugger 扩展应安装在 SSH 远端；工作区已声明推荐扩展。
@@ -34,6 +34,7 @@ python3 tools/dev.py setup
 .venv/bin/python tools/dev.py test-core
 .venv/bin/python tools/dev.py test
 .venv/bin/python tools/architect.py plan --question '描述要设计的需求'
+git fetch origin
 .venv/bin/python tools/architect.py review --base origin/master --ref HEAD --question '描述本次改动和已跑的测试'
 ```
 
@@ -59,7 +60,7 @@ Claude 使用家宽机现有订阅登录。审查命令启用 safe mode、restri
 2026-09-22，原始提交 `bcfbce5`：
 
 - Python 3.12 的 CPU 依赖可以安装，依赖一致性检查通过。
-- 配置/异常测试子集 `tools/dev.py test-core`：40 passed（5 秒左右）。
+- 配置/异常测试子集 `tools/dev.py test-core`：40 passed。
 - 完整 `pytest tests` 在收集阶段因缺失 `src/encryptor/key_injector.py` 和
   `src/decryptor/base_decryptor.py` 失败；`main.py --help` 也因前者失败。
 - 用户决定先完成开发底座，暂不重写上述模块。环境检查会继续准确报告它们缺失。
