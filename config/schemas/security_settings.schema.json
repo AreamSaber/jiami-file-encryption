@@ -3,7 +3,9 @@
   "title": "Security Settings Schema",
   "description": "安全设置的JSON Schema",
   "type": "object",
-  "required": ["security_settings"],
+  "required": [
+    "security_settings"
+  ],
   "properties": {
     "security_settings": {
       "type": "object",
@@ -11,38 +13,24 @@
         "key_management": {
           "type": "object",
           "properties": {
-            "key_derivation": {
+            "key_derivation": false,
+            "key_generation": {
               "type": "object",
+              "description": "当前生成随机密钥；未实现口令派生。",
+              "required": [
+                "source"
+              ],
+              "additionalProperties": false,
               "properties": {
-                "algorithm": {
+                "source": {
                   "type": "string",
-                  "enum": ["PBKDF2", "Argon2", "scrypt"]
-                },
-                "iterations": {
-                  "type": "integer",
-                  "minimum": 1000
+                  "const": "os.urandom"
                 }
               }
             }
           }
         },
-        "anti_reverse_engineering": {
-          "type": "object",
-          "properties": {
-            "code_obfuscation": {
-              "type": "object",
-              "properties": {
-                "enabled": {
-                  "type": "boolean"
-                },
-                "level": {
-                  "type": "string",
-                  "enum": ["low", "medium", "high"]
-                }
-              }
-            }
-          }
-        },
+        "anti_reverse_engineering": false,
         "performance": {
           "type": "object",
           "properties": {

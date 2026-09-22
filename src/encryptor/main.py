@@ -196,8 +196,7 @@ class FileEncryptor:
         """获取默认安全设置"""
         return {
             "security_settings": {
-                "key_management": {"key_derivation": {"algorithm": "PBKDF2"}},
-                "anti_reverse_engineering": {"code_obfuscation": {"enabled": True}}
+                "key_management": {"key_generation": {"source": "os.urandom"}}
             }
         }
 

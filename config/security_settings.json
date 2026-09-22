@@ -1,11 +1,8 @@
 {
   "security_settings": {
     "key_management": {
-      "key_derivation": {
-        "algorithm": "PBKDF2",
-        "hash_function": "SHA256",
-        "iterations": 100000,
-        "salt_size": 32
+      "key_generation": {
+        "source": "os.urandom"
       },
       "key_storage": {
         "obfuscation": true,
@@ -17,29 +14,6 @@
         "enabled": false,
         "interval_hours": 24,
         "max_age_days": 30
-      }
-    },
-    
-    "anti_reverse_engineering": {
-      "code_obfuscation": {
-        "enabled": true,
-        "level": "high",
-        "string_encryption": true,
-        "control_flow_flattening": true,
-        "dead_code_insertion": true
-      },
-      "anti_debug": {
-        "enabled": true,
-        "debugger_detection": true,
-        "vm_detection": true,
-        "timing_checks": true,
-        "integrity_checks": true
-      },
-      "packing": {
-        "enabled": true,
-        "packer": "upx",
-        "compression_level": 9,
-        "anti_dump": true
       }
     },
     

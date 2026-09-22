@@ -91,7 +91,7 @@ class PureCPUEngine(HybridEncryptionEngine):
                     'method': 'aes256',
                     'mode': 'GCM',
                     'key_size': 256,
-                    'params': {'iterations': 100000 * self.security_level}
+                    'params': {}
                 })
             elif algorithm == 'chacha20':
                 layers.append({

@@ -23,9 +23,7 @@
           "method": "aes256",
           "mode": "GCM",
           "key_size": 256,
-          "params": {
-            "iterations": 500000
-          }
+          "params": {}
         },
         {
           "method": "custom",
@@ -71,10 +69,7 @@
           "method": "aes256",
           "mode": "GCM",
           "key_size": 256,
-          "params": {
-            "iterations": 1000000,
-            "key_derivation": "argon2"
-          }
+          "params": {}
         },
         {
           "method": "chacha20",
