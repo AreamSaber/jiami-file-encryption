@@ -27,6 +27,16 @@ settings.load_profile("ci")
 
 # ============ Fixtures ============
 
+@pytest.fixture(autouse=True)
+def isolate_config_manager():
+    """Config tests must not leave their deleted temporary directory active."""
+    from src.utils.config_manager import ConfigManager
+    ConfigManager._instance = None
+    yield
+    if ConfigManager._instance is not None:
+        ConfigManager._instance.stop_watching()
+    ConfigManager._instance = None
+
 @pytest.fixture
 def sample_encryptor():
     """提供测试用加密器"""

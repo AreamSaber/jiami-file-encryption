@@ -13,7 +13,6 @@
 import os
 import sys
 import time
-import pickle
 import tempfile
 import shutil
 import hashlib
@@ -76,22 +75,10 @@ class TestEncryptionDecryptionScenarios:
 
         return decrypted_data
 
-    def _decrypt_single_layer(self, data: bytes, layer_metadata: Dict) -> bytes:
-        """解密单层"""
-        algorithm = layer_metadata.get('algorithm', '').lower()
-
-        if 'aes' in algorithm:
-            return self._decrypt_aes256(data, layer_metadata)
-        elif 'chacha20' in algorithm:
-            return self._decrypt_chacha20(data, layer_metadata)
-        elif 'salsa20' in algorithm:
-            return self._decrypt_salsa20(data, layer_metadata)
-        elif 'matrix' in algorithm:
-            return self._decrypt_matrix_cipher(data, layer_metadata)
-        elif 'blowfish' in algorithm:
-            return self._decrypt_blowfish(data, layer_metadata)
-        else:
-            raise ValueError(f"未知算法: {algorithm}")
+    def _decrypt_single_layer(self, data, layer_metadata):
+        from src.decryptor.algorithm_registry import AlgorithmRegistry
+        registry = AlgorithmRegistry()
+        return registry.get_handler(layer_metadata['algorithm']).decrypt(data, layer_metadata)
 
     def _decrypt_aes256(self, data: bytes, metadata: Dict) -> bytes:
         """AES-256解密"""

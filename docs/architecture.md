@@ -1,36 +1,31 @@
 # 架构与开发边界
 
-本文件基于仓库代码结构和首次 Claude 架构建议整理，描述现状，不是密码学安全认证。
+## v1 模块关系
 
-| 部分 | 代码位置 | 主要职责 | 验证位置 |
-|---|---|---|---|
-| 算法实现 | `src/crypto/` | 标准算法与自定义变换 | Linux CPU；GPU特例另验 |
-| 流程编排 | `src/encryptor/`、`src/decryptor/` | 分层流程、文件处理、解密器生成 | Linux CPU + Windows |
-| 交互入口 | `main.py`、`cli/`、`gui/` | 命令行与图形界面 | CLI 可远程；GUI 在本机 |
-| 并行与硬件 | `src/thread_pool/`、`src/gpu/` | 线程调度、OpenCL/CUDA 检测与计算 | CPU 远程；GPU 真机 |
-| 配置与错误 | `src/utils/config_manager.py`、`src/exceptions/` | 配置校验、统一错误 | Linux CPU |
+| 部分 | 代码位置 | 职责 |
+|---|---|---|
+| 入口与生产者 | `main.py`、`src/encryptor/main.py`、`hybrid_engine.py` | 读取文件/目录，按配置生成密文及完整恢复元数据 |
+| 协议 | `src/package_format/envelope.py`、`schema.py` | 限长帧、原始字节 MAC、封闭结构、公开/私密投影、完整计划验证 |
+| 发布 | `src/package_format/writer.py`、`publication.py` | 私密暂存、真实读取器验证、一次不覆盖重命名、同步结果报告 |
+| 目录 | `src/package_format/archive.py` | 数据型 ZIP_STORED 归档、路径/大小/类型校验 |
+| 共享恢复 | `src/decryptor/base_decryptor.py`、`algorithm_registry.py` | 认证、校验拓扑、逐层/分片恢复、哈希检查、发布明文 |
+| 恢复入口 | `cpu_decryptor.py`、`gpu_decryptor.py`、GUI/模板适配器 | 共享同一读取与发布流程；GPU 需显式后端 |
+| 程序生成 | `src/encryptor/key_injector.py` | 将共享恢复源码及私密恢复帧装入独立 Python 程序；可选 Windows 构建接口 |
 
-模块间的完整运行关系尚不能验证：上游缺失 `src/encryptor/key_injector.py`
-和 `src/decryptor/base_decryptor.py`，导致主入口导入失败，完整测试无法收集。
+原来缺失的四个模块已经实现。恢复程序和模板不再各自维护一套密码算法。
 
-## 决策 001：远程主工作区，按提交审查
+## 算法与硬件边界
 
-- 代码、依赖、终端和 CPU 测试统一放在 Linux 主工作区；本机 VS Code 负责显示和交互。
-- Codex 实现和验证；Claude 设计并审查关键变更。当前由用户手动转交问题和答复，注明固定提交范围。
-- 报告记录目标提交和比较基线。未提交修改不纳入报告，不能把旧报告当成新修改的批准。
-- GitHub 用来保存提交和 PR；Windows GUI/GPU 验收按同一提交取代码，不做双向文件实时同步。
-- 2GB 开发机先串行执行资源密集任务。是否升级内存由实际使用情况决定。
+v1 默认 CPU 路径；AES GCM/CBC/CTR、ChaCha20、PyNaCl SecretBox、Blowfish、真实 Twofish、RSA/OAEP 或 RSA 混合模式及现有自定义变换都有明确变体与参数结构。标准依赖缺失会失败，不能改用简化算法。
 
-代价：Windows GUI/GPU 仍要单独验收；大型构建/并行 AI 会受内存限制。
-替代方案：全本机开发会增加远程 Claude 的上下文传递步骤；双向同步会增加冲突处理。
+多线程分层保存每个块各自的密钥与输入/输出长度；并行分片与逐层流水线是不同拓扑，不隐式互换。GPUDecryptor 只向显式提供的 backend 调用 `supports`/`decrypt`，是否允许 CPU 回退由调用者选择并记录实际使用情况；GPUFileEncryptor 无已验证后端时明确报告 CPU 回退。算法运行失败不通过回退伪装成成功。
 
-## 后续优先事项
+现有实验 GPU 代码仍留在仓库中，未纳入 v1 默认协议实现。`config/gpu_optimized_profiles.json` 已标记过时；支持清单以 `config/encryption_profiles.json` 的 11 项为准。
 
-1. 找回缺失源码并修正忽略规则，恢复完整测试收集。
-2. 再记录加解密往返、失败后文件完整性、历史密文兼容性的真实验证结果。
-3. 涉及算法、密钥处理、格式变更、线程/GPU边界时先形成方案，再由 Codex 实现。
+## 决策：按提交人工审查
 
-## 决策 002：安全重构范围与人工交接
+代码、终端和 CPU 验证放在 Linux 工作区；VS Code 通过 SSH 操作。Codex 实现和验证，Claude 设计与审查；用户手动转交固定提交范围、英文问题和测试证据，不自动调用 Claude。
 
-用户已确认的四项产品范围及分阶段状态见 [安全重构决策](security-redesign.md)。
-四个缺失模块仍需在协议细节确定后恢复；不自动调用 Claude。
+本次实现使用独立 worktree，保留 Claude 原有 checkout。打开对应实现 worktree 的 `jiami-remote.code-workspace` 即可开发。GitHub PR 保存可审查提交，不自动合并。Windows GUI/GPU 按相同提交另验，不做双向实时同步。
+
+协议与信任模型见 [安全重构决策](security-redesign.md)。

@@ -17,13 +17,13 @@ VS Code 已连接不表示 Codex 应用已添加同一主机，两者需各配�
 
 在工作区按 `Ctrl+Shift+P` →「任务: 运行任务」：
 
-- **jiami: 环境检查**：检查虚拟环境和两个已知缺失源文件；缺失时返回非零。
+- **jiami: 环境检查**：检查虚拟环境和恢复链路所需源文件；缺失时返回非零。
 - **jiami: 配置与异常测试**：快速测试四个配置/异常文件；不代表加解密流程通过。
-- **jiami: 完整测试（当前缺源码）**：完整 tests 目录；保留真实的失败状态。
+- **jiami: 完整测试**：完整 tests 目录；保留真实的失败状态。
 - **jiami: Claude 架构方案**：保留的可选脚本入口；当前采用人工交接，不自动运行。
 - **jiami: Claude 审查已提交变更**：保留的可选入口；不代表自动交接流程已经完成。
 
-F5 默认可调试配置与异常测试。主程序调试需要先恢复缺失模块。
+F5 默认可调试配置与异常测试，也可选择 CLI 调试。
 Python 和 Python Debugger 扩展应安装在 SSH 远端；工作区已声明推荐扩展。
 
 终端对应入口：
@@ -41,7 +41,8 @@ git fetch origin
 `setup` 需要 uv，创建 Python 3.12 虚拟环境并同步 `requirements-remote.lock`。
 锁文件是远程 CPU/测试环境，不包含 PyQt6、PySide6、CUDA、OpenCL。原 `requirements.txt` 保留桌面依赖。
 更新依赖时运行 `python3 tools/dev.py lock`，检查锁文件差异，再运行 setup 和测试。
-此锁文件服务于 Linux CPU 环境；Windows GUI 使用独立虚拟环境和原桌面依赖要求。
+此锁文件服务于 Linux CPU 环境；Twofish 需要 C 编译器（Debian/Ubuntu 的 build-essential）。
+Windows 使用 Python 3.12.4+、独立虚拟环境及桌面依赖，Twofish 编译另需匹配的 MSVC 工具链。
 
 ## 协作流程
 
@@ -63,8 +64,8 @@ Claude 使用家宽机现有订阅登录。当前 Codex 不自动调用 Claude�
 - 配置/异常测试子集 `tools/dev.py test-core`：40 passed。
 - 完整 `pytest tests` 在收集阶段因缺失 `src/encryptor/key_injector.py` 和
   `src/decryptor/base_decryptor.py` 失败；`main.py --help` 也因前者失败。
-- 该基线阶段用户决定先完成开发底座。当前已确认的后续安全重构范围见 [安全重构决策](security-redesign.md)，缺失模块仍会据实报告。
-- GUI、GPU、Windows 打包和完整加解密均未在本轮验证。
+- 该基线阶段用户决定先完成开发底座。当前已确认的后续安全重构范围见 [安全重构决策](security-redesign.md)，此段保留为历史基线。v1 已恢复四个模块，当前状态见安全重构决策和实现 PR。
+- 上述历史阶段没有验证 GUI、GPU、Windows 打包及完整加解密。不要引用这些旧结果代替当前实现测试。
 
 Linux 家宽机承担编辑、测试和审查，不能直接替代 Windows 窗口与本机显卡验收。
 需要本机验收时从 GitHub 获取指定提交；保持远程为主工作区，避免同一分支双端同时修改。
@@ -79,3 +80,12 @@ Claude 审查脚本最多等待 10 分钟，超时返回失败，不创建成功
 官方参考：[VS Code Remote SSH](https://code.visualstudio.com/docs/remote/ssh)、
 [Codex SSH 连接](https://learn.chatgpt.com/docs/remote-connections)、
 [Claude CLI](https://code.claude.com/docs/en/cli-reference)。
+
+## 当前实现工作区
+
+v1 实现在独立目录 `~/projects/jiami-protocol-v1`，原 `jiami-file-encryption` checkout 保留供原 Claude 会话使用。
+需审查新实现时应打开实现目录并核对交接提示词中的 HEAD，不能继续审查旧 checkout。
+
+人工交接提示词首行应明确：
+
+> Respond entirely in English for this task, overriding the Chinese-language preference in CLAUDE.md. Preserve code identifiers and quoted source text unchanged.

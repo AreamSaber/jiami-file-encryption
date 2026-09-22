@@ -58,7 +58,7 @@
         "problemMatcher": []
       },
       {
-        "label": "jiami: 完整测试（当前缺源码）",
+        "label": "jiami: 完整测试",
         "type": "process",
         "command": "${workspaceFolder}/.venv/bin/python",
         "args": [
@@ -140,7 +140,7 @@
         "justMyCode": true
       },
       {
-        "name": "jiami: CLI（需先恢复缺失源码）",
+        "name": "jiami: CLI",
         "type": "debugpy",
         "request": "launch",
         "program": "${workspaceFolder}/main.py",

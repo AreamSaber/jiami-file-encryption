@@ -7,7 +7,6 @@ CPU/GPU分离式加密引擎GUI界面
 import os
 import sys
 import time
-import pickle
 import multiprocessing
 from datetime import datetime
 from pathlib import Path
@@ -56,8 +55,6 @@ except ImportError as e:
 if GUI_AVAILABLE:
     try:
         from src.encryptor.pure_cpu_engine import PureCPUEngine
-        from src.encryptor.pure_gpu_only_engine import PureGPUOnlyEngine
-        from src.encryptor.key_injector import KeyInjector
         from src.utils.logger import Logger
         print("✅ 项目模块导入成功")
     except ImportError as e:
@@ -82,162 +79,23 @@ class EncryptionWorker(QThread):
         self.logger = Logger("EncryptionWorker")
 
     def run(self):
-        """执行加密"""
+        """Use the same v1 writer and recovery program as every file entry point."""
+        from src.encryptor.gpu_file_encryptor import GPUFileEncryptor
         try:
-            self.progress.emit(5, "读取文件...")
-
-            # 读取文件
-            with open(self.input_file, 'rb') as f:
-                file_data = f.read()
-
-            file_size = len(file_data)
-            self.progress.emit(10, f"文件读取完成: {file_size:,} 字节")
-
-            # 创建对应的引擎
-            if self.engine_type == 'cpu':
-                self.progress.emit(15, "初始化CPU引擎...")
-                engine = PureCPUEngine(security_level=self.security_level)
-                engine_name = "纯CPU引擎"
-            else:
-                self.progress.emit(15, "初始化GPU引擎...")
-                engine = PureGPUOnlyEngine(security_level=self.security_level)
-                engine_name = "纯GPU引擎"
-
-            self.progress.emit(20, f"{engine_name}初始化完成")
-
-            # 执行加密
-            start_time = time.time()
-
-            def progress_callback(progress, status):
-                # 将引擎进度映射到20-90范围
-                mapped_progress = 20 + int(progress * 0.7)
-                self.progress.emit(mapped_progress, status)
-
-            result = engine.encrypt_with_security_level(file_data, progress_callback)
-
-            encrypt_time = time.time() - start_time
-            self.progress.emit(90, "保存加密文件...")
-
-            # 生成文件名
-            base_name = Path(self.input_file).stem
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            encrypted_file = os.path.join(self.output_dir,
-                                        f"{base_name}_{self.engine_type}_level{self.security_level}_{timestamp}.encrypted")
-
-            # 保存加密文件
-            with open(encrypted_file, 'wb') as f:
-                pickle.dump(result, f)
-
-            self.progress.emit(95, "创建解密器...")
-
-            # 创建解密器
-            decryptor_file = self._create_decryptor(encrypted_file, result)
-
-            self.progress.emit(100, "加密完成！")
-
-            # 返回结果
-            result_info = {
-                'success': True,
-                'engine_type': self.engine_type,
-                'security_level': self.security_level,
-                'encryption_time': encrypt_time,
-                'file_size': file_size,
-                'encrypted_size': len(result['encrypted_data']),
-                'encrypted_file': encrypted_file,
-                'decryptor_file': decryptor_file,
-                'engine_info': result.get('metadata', {})
-            }
-
-            self.finished.emit(result_info)
-
-        except Exception as e:
-            self.logger.error(f"加密失败: {e}")
-            self.error.emit(str(e))
-
-    def _create_decryptor(self, encrypted_file: str, encryption_result: dict) -> str:
-        """创建对应的专用解密器（仅使用专用模板）"""
-        try:
-            base_name = os.path.splitext(encrypted_file)[0]
-
-            # 生成解密器文件名
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            decryptor_py_file = base_name + f"_{self.engine_type}_decryptor_{timestamp}.py"
-            decryptor_exe_file = base_name + f"_{self.engine_type}_decryptor_{timestamp}.exe"
-
-            # 使用KeyInjector创建专业的解密器
-            from src.encryptor.key_injector import KeyInjector
-
-            # 准备解密元数据
-            metadata = {
-                'engine_type': f'pure_{self.engine_type}',
-                'security_level': self.security_level,
-                'encryption_time': encryption_result.get('encryption_time', 0),
-                'file_size': encryption_result.get('file_size', 0),
-                'encrypted_size': encryption_result.get('encrypted_size', 0),
-                'layers': encryption_result.get('layers', []),
-                'algorithm_info': encryption_result.get('algorithm_info', {}),
-                'decryptor_type': self.engine_type,
-                'created_time': datetime.now().isoformat(),
-                'version': '1.0'
-            }
-
-            # 创建KeyInjector实例
-            key_injector = KeyInjector()
-
-            # 设置专用模板路径
-            if self.engine_type == 'cpu':
-                specialized_template = "src/decryptor/cpu_template.py"
-                template_name = "CPU专用模板"
-            else:
-                specialized_template = "src/decryptor/gpu_template.py"
-                template_name = "GPU专用模板"
-
-            # 检查专用模板是否存在
-            if not os.path.exists(specialized_template):
-                self.logger.error(f"{template_name}不存在: {specialized_template}")
-                raise FileNotFoundError(f"{template_name}文件不存在")
-
-            # 使用专用模板
-            original_template_path = key_injector.template_path
-            key_injector.template_path = specialized_template
-
-            self.logger.info(f"使用{template_name}: {specialized_template}")
-
-            try:
-                # 创建Python解密器
-                self.logger.info(f"创建{self.engine_type.upper()}专用解密器...")
-
-                if not key_injector.create_decryptor(metadata, decryptor_py_file):
-                    raise Exception(f"{template_name}Python解密器创建失败")
-
-                self.logger.info(f"Python解密器创建成功: {decryptor_py_file}")
-
-                # 创建可执行解密器
-                self.logger.info("正在创建exe解密器...")
-
-                if key_injector.create_executable_decryptor(metadata, decryptor_exe_file):
-                    self.logger.info(f"exe解密器创建成功: {decryptor_exe_file}")
-
-                    # 恢复原始模板路径
-                    key_injector.template_path = original_template_path
-
-                    # 返回exe文件路径（优先）
-                    return decryptor_exe_file
-                else:
-                    self.logger.warning("exe解密器创建失败，返回Python版本")
-                    # 恢复原始模板路径
-                    key_injector.template_path = original_template_path
-                    return decryptor_py_file
-
-            finally:
-                # 确保恢复原始模板路径
-                key_injector.template_path = original_template_path
-
-        except Exception as e:
-            self.logger.error(f"创建{self.engine_type.upper()}专用解密器失败: {e}")
-            raise Exception(f"无法创建{self.engine_type.upper()}专用解密器: {e}")
-
-
+            if self.engine_type != 'cpu':
+                raise RuntimeError('v1 GPU backend has not been validated; select CPU')
+            result = GPUFileEncryptor(allow_fallback=True).encrypt_file(
+                self.input_file, self.output_dir, self.security_level,
+                lambda progress, status: self.progress.emit(min(90, int(progress * 0.9)), status))
+            if not result['success']:
+                raise RuntimeError(result['error'])
+            result.update(engine_type='cpu', file_size=result['original_size'],
+                          engine_info={'layers': result['layers']})
+            self.progress.emit(100, '加密完成')
+            self.finished.emit(result)
+        except Exception as exc:
+            self.logger.error('加密失败: ' + str(exc))
+            self.error.emit(str(exc))
 
 
 class SeparateEnginesGUI(QMainWindow):
@@ -556,64 +414,19 @@ class SeparateEnginesGUI(QMainWindow):
                     'supported_algorithms': cpu_engine.get_supported_algorithms()
                 }
 
-            # 加载GPU引擎信息
-            try:
-                for level in range(1, 6):
-                    gpu_engine = PureGPUOnlyEngine(security_level=level)
-                    self.gpu_algorithms[level] = {
-                        'name': gpu_engine.encryption_name,
-                        'algorithms': gpu_engine.algorithm_list,
-                        'description': gpu_engine.description,
-                        'supported_algorithms': ['aes256', 'chacha20', 'salsa20', 'matrix_cipher', 'blowfish']
-                    }
-            except Exception as e:
-                self.log_message(f"GPU引擎信息加载失败: {e}")
-
             self.log_message("引擎信息加载完成")
 
         except Exception as e:
             self.log_message(f"引擎信息加载失败: {e}")
 
     def check_gpu_availability(self):
-        """检查GPU可用性"""
-        try:
-            import os
-            os.environ['PYOPENCL_CTX'] = '0'
-
-            from src.gpu.gpu_manager import gpu_manager
-
-            gpu_info = gpu_manager.get_performance_info()
-
-            if gpu_info['gpu_available']:
-                device_name = gpu_info.get('device_name', 'AMD GPU')
-                memory_info = gpu_info.get('memory_info', {})
-                memory_gb = memory_info.get('total', 0) // 1024 // 1024 // 1024
-
-                self.gpu_status_label.setText("可用")
-                self.gpu_status_label.setStyleSheet("color: green; font-weight: bold;")
-                self.gpu_device_label.setText(device_name)
-                self.gpu_memory_label.setText(f"{memory_gb}GB")
-
-                self.gpu_engine_radio.setEnabled(True)
-                self.log_message(f"GPU检测成功: {device_name} ({memory_gb}GB)")
-
-            else:
-                self.gpu_status_label.setText("不可用")
-                self.gpu_status_label.setStyleSheet("color: red; font-weight: bold;")
-                self.gpu_device_label.setText("无")
-                self.gpu_memory_label.setText("N/A")
-
-                self.gpu_engine_radio.setEnabled(False)
-                self.log_message("GPU不可用，GPU引擎已禁用")
-
-        except Exception as e:
-            self.gpu_status_label.setText("检测失败")
-            self.gpu_status_label.setStyleSheet("color: red; font-weight: bold;")
-            self.gpu_device_label.setText("错误")
-            self.gpu_memory_label.setText("N/A")
-
-            self.gpu_engine_radio.setEnabled(False)
-            self.log_message(f"GPU检测失败: {e}")
+        """Hardware detection alone does not establish v1 cipher parity."""
+        self.cpu_engine_radio.setChecked(True)
+        self.gpu_engine_radio.setEnabled(False)
+        self.gpu_status_label.setText('v1 尚未验收')
+        self.gpu_device_label.setText('使用 CPU')
+        self.gpu_memory_label.setText('N/A')
+        self.log_message('当前版本使用 CPU；GPU 后端需单独验收。')
 
     def on_engine_changed(self):
         """引擎选择变化"""
@@ -811,9 +624,11 @@ class SeparateEnginesGUI(QMainWindow):
                 f"🎉 {engine_type}加密成功！\n\n"
                 f"📁 加密文件: {os.path.basename(result['encrypted_file'])}\n"
                 f"🔓 {decryptor_info}"
+                "仅可分享 data.jmi；恢复程序和 recovery.jmis 必须保密。\n"
+                f"{result.get('warning', '')}\n"
                 f"⏱️ 加密时间: {result['encryption_time']:.3f}秒\n"
                 f"🔒 安全级别: {result['security_level']}\n"
-                f"📊 压缩比: {(1 - result['encrypted_size']/result['file_size'])*100:.1f}%"
+                f"📊 压缩比: {(1 - result['encrypted_size']/max(1, result['file_size']))*100:.1f}%"
             )
         else:
             self.log_message("❌ 加密失败")

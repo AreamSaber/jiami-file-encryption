@@ -662,8 +662,12 @@ CPU核心数: {self.cpu_count}
             # 基础信息
             message = (f"加密完成！\n\n"
                       f"加密文件: {result['encrypted_file']}\n"
-                      f"解密器: {result['decryptor_file']}\n"
+                      f"私密恢复程序: {result['decryptor_file']}\n"
+                      f"仅可分享 data.jmi，请勿分享整个文件夹。\n"
                       f"耗时: {result['encryption_time']:.2f} 秒")
+
+            if result.get("warning"):
+                message += "\n" + result["warning"]
 
             # 如果启用了性能监控，显示详细信息
             if self.show_performance_checkbox.isChecked():

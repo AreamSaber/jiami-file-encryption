@@ -35,7 +35,7 @@ def main():
             code = run([uv, 'venv', '--python', version, '.venv'])
             if code:
                 return code
-        return run([uv, 'pip', 'sync', '--python', PYTHON, '--only-binary', ':all:',
+        return run([uv, 'pip', 'sync', '--python', PYTHON, '--no-binary', 'twofish',
                     'requirements-remote.lock'])
     if args.command == 'lock':
         # Keep requirements.txt as the dependency source; omit desktop bindings on the CPU host.
@@ -45,7 +45,7 @@ def main():
             source = Path(tmp) / 'requirements.in'
             source.write_text('\n'.join(lines) + '\n', encoding='utf-8')
             return run([uv, 'pip', 'compile', '--python-version', '3.12', '--no-header', '--no-annotate',
-                        '--only-binary', ':all:', source, '-o', ROOT / 'requirements-remote.lock'])
+                        '--no-binary', 'twofish', source, '-o', ROOT / 'requirements-remote.lock'])
     if args.command == 'doctor':
         missing = []
         for label, path in [('uv', Path(uv)), ('Python venv', PYTHON),

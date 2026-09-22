@@ -24,3 +24,4 @@ rpds-py==2026.6.3
 sortedcontainers==2.4.0
 typing-extensions==4.16.0
 watchdog==6.0.0
+twofish==0.3.0

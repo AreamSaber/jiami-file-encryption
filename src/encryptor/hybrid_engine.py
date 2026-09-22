@@ -164,6 +164,11 @@ class HybridEncryptionEngine:
             包含加密结果的字典
         """
         try:
+            for layer in config.get('layers', []):
+                if layer.get('method') == 'twofish':
+                    __import__('src.crypto.twofish_backend')
+                if layer.get('method') == 'salsa20':
+                    __import__('nacl.secret')
             start_time = time.time()
             data_size = len(data)
             self.logger.info(f"开始混合加密，数据大小: {data_size} 字节")
@@ -274,9 +279,7 @@ class HybridEncryptionEngine:
                 )
             else:
                 # 单线程处理
-                encrypted_data, layer_metadata = self.encryption_methods[method](
-                    encrypted_data, layer
-                )
+                encrypted_data, layer_metadata = self._run_layer(encrypted_data, layer, method)
 
             # 保存元数据
             layer_metadata['layer_index'] = i
@@ -312,9 +315,9 @@ class HybridEncryptionEngine:
 
         # 分割数据
         chunks = []
-        for i in range(0, data_size, chunk_size):
-            chunk = data[i:i + chunk_size]
-            chunks.append((i, chunk))
+        for index, offset in enumerate(range(0, data_size, chunk_size)):
+            chunk = data[offset:offset + chunk_size]
+            chunks.append((index, chunk))
 
         # 创建线程池
         if not self.thread_pool:
@@ -347,7 +350,7 @@ class HybridEncryptionEngine:
 
             # 重组数据 - 按索引顺序重组，确保数据完整性
             result_data = bytearray()
-            combined_metadata = {'chunks': {}, 'thread_count': thread_count}
+            combined_metadata = {'chunks': {}, 'thread_count': thread_count, 'input_size': len(data), 'output_size': sum(map(len, encrypted_chunks.values()))}
 
             # 按索引顺序重组数据
             sorted_indices = sorted(encrypted_chunks.keys())
@@ -375,8 +378,18 @@ class HybridEncryptionEngine:
 
         except Exception as e:
             self.logger.error(f"多线程加密失败: {e}")
-            # 回退到单线程
-            return self.encryption_methods[method](data, layer)
+            # A failed chunk invalidates the attempt; never silently retry a new plan.
+            raise
+
+    def _run_layer(self, data, layer, method):
+        options = {**layer, **layer.get('params', {})}
+        if options.get('seed') == 'random':
+            options['seed'] = int.from_bytes(os.urandom(8), 'big')
+        if options.get('rotation') == 'random':
+            options['rotation'] = os.urandom(1)[0]
+        encrypted, metadata = self.encryption_methods[method](data, options)
+        metadata.update(method=method, input_size=len(data), output_size=len(encrypted))
+        return bytes(encrypted), metadata
 
     def _encrypt_chunk_safe(self, chunk: bytes, layer: Dict, method: str) -> tuple:
         """
@@ -391,7 +404,7 @@ class HybridEncryptionEngine:
             (加密数据, 元数据)
         """
         try:
-            return self.encryption_methods[method](chunk, layer)
+            return self._run_layer(chunk, layer, method)
         except Exception as e:
             self.logger.error(f"块加密失败: {e}")
             raise
@@ -414,9 +427,7 @@ class HybridEncryptionEngine:
             self.logger.debug(f"应用第 {i+1} 层加密: {method}")
 
             # 执行加密
-            encrypted_data, layer_metadata = self.encryption_methods[method](
-                encrypted_data, layer
-            )
+            encrypted_data, layer_metadata = self._run_layer(encrypted_data, layer, method)
 
             # 保存元数据
             layer_metadata['layer_index'] = i
@@ -455,7 +466,7 @@ class HybridEncryptionEngine:
             optimal_chunk_count = max(1, min(4, max_threads))
         else:
             # 小数据：使用传统分块
-            optimal_chunk_count = min(chunk_count, max_threads)
+            optimal_chunk_count = max(1, min(chunk_count, max_threads, max(1, data_size)))
 
         # 数据分片
         chunk_size = data_size // optimal_chunk_count
@@ -520,8 +531,8 @@ class HybridEncryptionEngine:
 
         except Exception as e:
             self.logger.error(f"并行加密失败: {e}")
-            # 回退到分层加密
-            return self._layered_encrypt(data, config)
+            # Never silently change parallel-chunk topology after an error.
+            raise
 
     def _encrypt_chunk_with_layer(self, chunk: bytes, layer: Dict, index: int) -> Dict:
         """
@@ -541,7 +552,7 @@ class HybridEncryptionEngine:
 
         self.logger.debug(f"加密分片 {index+1}: {method}")
 
-        encrypted_chunk, chunk_metadata = self.encryption_methods[method](chunk, layer)
+        encrypted_chunk, chunk_metadata = self._run_layer(chunk, layer, method)
 
         return {
             'index': index,
@@ -559,62 +570,9 @@ class HybridEncryptionEngine:
         return combined
 
     def _encrypt_aes256(self, data: bytes, config: Dict) -> tuple:
-        """AES-256加密 (支持GPU加速)"""
-        # 检查是否应该使用GPU加速
-        try:
-            from src.gpu.gpu_manager import gpu_manager
-            if gpu_manager.should_use_gpu(len(data), 'aes256'):
-                self.logger.info(f"🚀 使用GPU加速AES-256加密 - 数据大小: {len(data)//1024//1024}MB")
-                return self._encrypt_aes256_gpu(data, config)
-        except Exception as e:
-            self.logger.debug(f"GPU加速检查失败，使用CPU: {e}")
-
-        # CPU实现
-        try:
-            from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-            from cryptography.hazmat.primitives import padding
-            import os
-
-            # 创建加密器
-            mode = config.get('mode', 'CBC')
-
-            # 使用传入的密钥或生成新密钥
-            key = config.get('key', os.urandom(32))  # 256位密钥
-
-            if mode == 'CBC':
-                # CBC模式需要16字节IV
-                iv = config.get('iv', os.urandom(16))   # 128位IV
-                cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
-                # 需要填充
-                padder = padding.PKCS7(128).padder()
-                padded_data = padder.update(data) + padder.finalize()
-                data_to_encrypt = padded_data
-            elif mode == 'GCM':
-                # GCM模式需要12字节IV
-                iv = config.get('iv', os.urandom(12))   # 96位IV (GCM推荐)
-                cipher = Cipher(algorithms.AES(key), modes.GCM(iv))
-                data_to_encrypt = data
-            else:
-                raise ValueError(f"不支持的AES模式: {mode}")
-
-            encryptor = cipher.encryptor()
-            encrypted_data = encryptor.update(data_to_encrypt) + encryptor.finalize()
-
-            metadata = {
-                'algorithm': 'AES-256',
-                'mode': mode,
-                'key': key,
-                'iv': iv
-            }
-
-            if mode == 'GCM':
-                metadata['tag'] = encryptor.tag
-
-            return encrypted_data, metadata
-
-        except ImportError:
-            # 如果没有cryptography库，使用简单的XOR加密作为替代
-            return self._encrypt_simple_xor(data, config)
+        # The v1 baseline uses the standard backend; GPU acceleration is opt-in
+        # only after backend parity is established, never a different cipher.
+        return self._encrypt_aes256_cpu(data, config)
 
     def _encrypt_aes256_gpu(self, data: bytes, config: Dict) -> tuple:
         """GPU加速的AES-256加密"""
@@ -662,80 +620,31 @@ class HybridEncryptionEngine:
             return self._encrypt_aes256_cpu(data, config)
 
     def _encrypt_aes256_cpu(self, data: bytes, config: Dict) -> tuple:
-        """CPU版本的AES-256加密"""
         from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
         from cryptography.hazmat.primitives import padding
-        import os
-
         mode = config.get('mode', 'CBC')
         key = config.get('key', os.urandom(32))
-
+        iv = config.get('iv', os.urandom(12 if mode == 'GCM' else 16))
         if mode == 'CBC':
-            iv = os.urandom(16)
-            cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
+            cipher_mode = modes.CBC(iv)
             padder = padding.PKCS7(128).padder()
-            padded_data = padder.update(data) + padder.finalize()
-            data_to_encrypt = padded_data
+            payload = padder.update(data) + padder.finalize()
         elif mode == 'GCM':
-            iv = os.urandom(12)
-            cipher = Cipher(algorithms.AES(key), modes.GCM(iv))
-            data_to_encrypt = data
+            cipher_mode, payload = modes.GCM(iv), data
+        elif mode == 'CTR':
+            iv = config.get('initial_counter', iv)
+            cipher_mode, payload = modes.CTR(iv), data
         else:
-            raise ValueError(f"不支持的AES模式: {mode}")
-
-        encryptor = cipher.encryptor()
-        encrypted_data = encryptor.update(data_to_encrypt) + encryptor.finalize()
-
-        metadata = {
-            'algorithm': 'AES-256-CPU',
-            'mode': mode,
-            'key': key,
-            'iv': iv,
-            'gpu_accelerated': False
-        }
-
+            raise ValueError('Unsupported AES mode: ' + str(mode))
+        encryptor = Cipher(algorithms.AES(key), cipher_mode).encryptor()
+        encrypted = encryptor.update(payload) + encryptor.finalize()
+        metadata = {'algorithm': 'AES-256', 'mode': mode, 'key': key, 'iv': iv}
         if mode == 'GCM':
             metadata['tag'] = encryptor.tag
+        return encrypted, metadata
 
-        return encrypted_data, metadata
-
-    def _encrypt_chacha20(self, data: bytes, config: Dict) -> tuple:
-        """ChaCha20加密 (支持GPU加速)"""
-        # 检查是否应该使用GPU加速
-        try:
-            from src.gpu.gpu_manager import gpu_manager
-            if gpu_manager.should_use_gpu(len(data), 'chacha20'):
-                self.logger.info(f"🚀 使用GPU加速ChaCha20加密 - 数据大小: {len(data)//1024//1024}MB")
-                return self._encrypt_chacha20_gpu(data, config)
-        except Exception as e:
-            self.logger.debug(f"GPU加速检查失败，使用CPU: {e}")
-
-        # CPU实现
-        try:
-            from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
-            import os
-
-            key = os.urandom(32)  # 256位密钥
-            nonce = os.urandom(16)  # 128位nonce (cryptography库要求16字节)
-
-            algorithm = algorithms.ChaCha20(key, nonce)
-            cipher = Cipher(algorithm, mode=None)
-            encryptor = cipher.encryptor()
-
-            encrypted_data = encryptor.update(data) + encryptor.finalize()
-
-            metadata = {
-                'algorithm': 'ChaCha20-CPU',
-                'key': key,
-                'nonce': nonce,
-                'gpu_accelerated': False
-            }
-
-            return encrypted_data, metadata
-
-        except ImportError:
-            # 回退到简单加密
-            return self._encrypt_simple_xor(data, config)
+    def _encrypt_chacha20(self, data, config):
+        return self._encrypt_chacha20_cpu(data, config)
 
     def _encrypt_chacha20_gpu(self, data: bytes, config: Dict) -> tuple:
         """GPU加速的ChaCha20加密"""
@@ -820,8 +729,8 @@ class HybridEncryptionEngine:
             return encrypted_data, metadata
 
         except ImportError:
-            # 如果PyNaCl不可用，使用简化的Salsa20实现
-            return self._encrypt_salsa20_simple(data, config)
+            # The configured cipher must be available.
+            raise ImportError('PyNaCl is required; Salsa20_Simple fallback is disabled')
 
     def _encrypt_blowfish(self, data: bytes, config: Dict) -> tuple:
         """Blowfish加密"""
@@ -873,14 +782,14 @@ class HybridEncryptionEngine:
             return encrypted_data, metadata
 
         except ImportError:
-            # 回退到简单加密
-            return self._encrypt_simple_xor(data, config)
+            # The configured cipher must be available.
+            raise ImportError('Required standard cipher dependency is unavailable')
 
     def _encrypt_twofish(self, data: bytes, config: Dict) -> tuple:
         """Twofish加密"""
         try:
             # 尝试使用专门的twofish库
-            import twofish
+            from src.crypto.twofish_backend import Twofish
             import os
 
             key_size = config.get('key_size', 256)  # 默认256位
@@ -891,7 +800,7 @@ class HybridEncryptionEngine:
             key = os.urandom(key_size // 8)
 
             # 创建Twofish实例
-            tf = twofish.Twofish(key)
+            tf = Twofish(key)
 
             # 填充数据到16字节边界
             padded_data = self._pad_data_pkcs7(data, 16)
@@ -913,8 +822,8 @@ class HybridEncryptionEngine:
             return bytes(encrypted_data), metadata
 
         except ImportError:
-            # 如果没有twofish库，使用简化实现
-            return self._encrypt_twofish_simple(data, config)
+            # The configured cipher must be available.
+            raise ImportError('twofish is required; Twofish_Simple fallback is disabled')
 
     def _encrypt_twofish_simple(self, data: bytes, config: Dict) -> tuple:
         """简化的Twofish加密实现"""
@@ -996,7 +905,7 @@ class HybridEncryptionEngine:
             public_key = private_key.public_key()
 
             # RSA只能加密小数据，对于大数据使用混合加密
-            if len(data) > (key_size // 8 - 42):  # OAEP填充的限制
+            if len(data) > (key_size // 8 - 2 * hashes.SHA256().digest_size - 2):  # OAEP填充的限制
                 # 生成AES密钥加密数据
                 aes_key = os.urandom(32)
                 encrypted_data, aes_metadata = self._encrypt_aes256(data, {
@@ -1059,7 +968,7 @@ class HybridEncryptionEngine:
                 return encrypted_data, metadata
 
         except ImportError:
-            return self._encrypt_simple_xor(data, config)
+            raise ImportError('Required standard cipher dependency is unavailable')
 
     def _encrypt_custom(self, data: bytes, config: Dict) -> tuple:
         """自定义加密算法"""
@@ -1163,66 +1072,8 @@ class HybridEncryptionEngine:
         import os
         return os.urandom(size)
 
-    def _encrypt_matrix_cipher(self, data: bytes, config: Dict) -> tuple:
-        """矩阵变换加密 (支持GPU加速)"""
-        # 检查是否应该使用GPU加速
-        try:
-            from src.gpu.gpu_manager import gpu_manager
-            if gpu_manager.should_use_gpu(len(data), 'matrix_cipher'):
-                self.logger.info(f"🚀 使用GPU加速矩阵变换加密 - 数据大小: {len(data)//1024//1024}MB")
-                return self._encrypt_matrix_cipher_gpu(data, config)
-        except Exception as e:
-            self.logger.debug(f"GPU加速检查失败，使用CPU: {e}")
-
-        # CPU实现
-        import os
-        import random
-
-        matrix_size = config.get('matrix_size', 8)
-        key_schedule = config.get('key_schedule', 'dynamic')
-
-        # 生成变换矩阵的种子
-        if key_schedule == 'dynamic':
-            seed = random.randint(1, 65535)
-        else:
-            seed = config.get('seed', 12345)
-
-        random.seed(seed)
-
-        # 创建变换矩阵
-        transform_matrix = self._generate_transform_matrix(matrix_size)
-
-        # 将数据按矩阵大小分块
-        block_size = matrix_size * matrix_size
-        padded_data = self._pad_data_to_size(data, block_size)
-
-        encrypted_data = bytearray()
-
-        # 对每个块进行矩阵变换
-        for i in range(0, len(padded_data), block_size):
-            block = padded_data[i:i+block_size]
-
-            # 将块重塑为矩阵
-            matrix = [list(block[j:j+matrix_size]) for j in range(0, len(block), matrix_size)]
-
-            # 应用变换矩阵
-            transformed_matrix = self._apply_matrix_transform(matrix, transform_matrix)
-
-            # 将变换后的矩阵展平
-            for row in transformed_matrix:
-                encrypted_data.extend(row)
-
-        metadata = {
-            'algorithm': 'Matrix_Cipher-CPU',
-            'matrix_size': matrix_size,
-            'key_schedule': key_schedule,
-            'seed': seed,
-            'transform_matrix': transform_matrix,
-            'original_length': len(data),
-            'gpu_accelerated': False
-        }
-
-        return bytes(encrypted_data), metadata
+    def _encrypt_matrix_cipher(self, data, config):
+        return self._encrypt_matrix_cipher_cpu(data, config)
 
     def _encrypt_matrix_cipher_gpu(self, data: bytes, config: Dict) -> tuple:
         """GPU加速的矩阵变换加密"""
@@ -1489,17 +1340,10 @@ class HybridEncryptionEngine:
         return matrix
 
     def _apply_matrix_transform(self, data_matrix: list, transform_matrix: list) -> list:
-        """应用矩阵变换"""
-        size = len(data_matrix)
-        result = [[0] * size for _ in range(size)]
-
-        # 矩阵乘法 (简化版，用于字节数据)
-        for i in range(size):
-            for j in range(size):
-                for k in range(size):
-                    result[i][j] = (result[i][j] + data_matrix[i][k] * transform_matrix[k][j]) % 256
-
-        return result
+        # The producer constructs a permutation matrix, not a general matrix.
+        indexes = [next(i for i, row in enumerate(transform_matrix) if row[j] == 1)
+                   for j in range(len(transform_matrix))]
+        return [[row[i] for i in indexes] for row in data_matrix]
 
     def _pad_data_to_size(self, data: bytes, block_size: int) -> bytes:
         """将数据填充到指定块大小"""

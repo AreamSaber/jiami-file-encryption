@@ -81,16 +81,6 @@ class EnhancedCLI:
                                   help='输出目录')
         encrypt_parser.add_argument('-p', '--profile', default='standard',
                                   help='加密配置文件 (默认: standard)')
-        encrypt_parser.add_argument('--password', 
-                                  help='密码保护 (可选)')
-        encrypt_parser.add_argument('--compress', action='store_true',
-                                  help='启用压缩')
-        encrypt_parser.add_argument('--steganography', 
-                                  help='启用隐写术 (image/text)')
-        encrypt_parser.add_argument('--delete-original', action='store_true',
-                                  help='加密后删除原文件')
-        encrypt_parser.add_argument('--backup', action='store_true',
-                                  help='创建备份')
         encrypt_parser.add_argument('-v', '--verbose', action='store_true',
                                   help='详细输出')
         
@@ -206,16 +196,6 @@ class EnhancedCLI:
         # 创建输出目录
         os.makedirs(args.output, exist_ok=True)
         
-        # 构建加密选项
-        options = {
-            'profile': args.profile,
-            'compress': getattr(args, 'compress', False),
-            'steganography': getattr(args, 'steganography', None),
-            'delete_original': getattr(args, 'delete_original', False),
-            'backup': getattr(args, 'backup', False),
-            'password': getattr(args, 'password', None)
-        }
-        
         # 执行加密
         if os.path.isfile(args.input):
             result = self.encryptor.encrypt_file(args.input, args.output, args.profile)
@@ -224,7 +204,9 @@ class EnhancedCLI:
         
         # 显示结果
         if result['success']:
-            print("✅ 加密完成!")
+            print("✅ 加密完成! 仅可分享 data.jmi；recovery.jmis 与 recover.py 必须保密。")
+            if result.get("warning"):
+                print(result["warning"])
             print(f"📁 输出目录: {args.output}")
             if args.verbose:
                 print(f"⏱️  耗时: {result.get('encryption_time', 0):.2f} 秒")
