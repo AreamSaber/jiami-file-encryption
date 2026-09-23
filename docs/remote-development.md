@@ -42,7 +42,17 @@ git fetch origin
 锁文件是远程 CPU/测试环境，不包含 PyQt6、PySide6、CUDA、OpenCL。原 `requirements.txt` 保留桌面依赖。
 更新依赖时运行 `python3 tools/dev.py lock`，检查锁文件差异，再运行 setup 和测试。
 此锁文件服务于 Linux CPU 环境；Twofish 需要 C 编译器（Debian/Ubuntu 的 build-essential）。
-Windows 使用 Python 3.12.4+、独立虚拟环境及桌面依赖，Twofish 编译另需匹配的 MSVC 工具链。
+Windows 使用 Python 3.12 系列（至少 3.12.4）、独立虚拟环境及桌面依赖，Twofish 编译另需匹配的 MSVC 工具链。
+安装支持范围为 Linux Python 3.10–3.12、Windows Python 3.12.4+（限 3.12 系列）。
+现有 NumPy 1.x 依赖不支持 Python 3.13+；不要以某个额外预装环境中子集测试通过代替可重建的安装支持。
+
+## CI 验证
+
+Tests 工作流覆盖全部 PR 目标分支，支持堆叠草稿 PR；也在 `codex/**` 和主开发分支的 push 上运行，以记录真实提交 SHA。
+矩阵为 Ubuntu 22.04 / Python 3.10、3.11、3.12，以及 Windows Server 2022 / Python 3.12。
+每个作业在 `.venv` 内安装桌面依赖，源码构建 Twofish 并执行已知答案检查，然后只运行一次完整测试。
+Qt 控件测试使用 offscreen 平台；此结果不能替代真实桌面外观、GPU 硬件、EXE 打包或物理断电验证。
+测试和覆盖率 XML 随 Actions run 保存；支持声明应同时核对具体提交的运行结果。
 
 ## 协作流程
 

@@ -1,6 +1,9 @@
 # ============================================
 # 文件加密系统 (jiami) - 依赖配置
-# Python 3.10+ 兼容
+# Linux: Python 3.10-3.12; Windows: Python 3.12.4+ within the 3.12 series.
+# NumPy 1.x currently limits supported Python to <=3.12 (no 3.13+ claim).
+# Twofish needs a C toolchain: build-essential on Linux, MSVC on Windows.
+# Setup and verified platform scope: docs/remote-development.md
 # ============================================
 
 # ------------------------------------------
