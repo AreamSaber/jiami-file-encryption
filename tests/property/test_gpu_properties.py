@@ -131,7 +131,7 @@ class TestPerformanceMetricsCompleteness:
                 pass
 
     @given(data_size=st.integers(min_value=100, max_value=10000))
-    @settings(max_examples=5)
+    @settings(max_examples=5, deadline=None)  # Real encryption/fsync latency is not a metric-validity property.
     def test_speed_calculation_is_valid(self, data_size: int):
         """
         Feature: tech-debt-refactor, Property 4: 性能指标完整性

@@ -24,8 +24,9 @@ def find_python_decryptors(directory):
 def check_pyinstaller():
     """检查PyInstaller是否可用"""
     try:
-        result = subprocess.run(['pyinstaller', '--version'], 
-                              capture_output=True, text=True, timeout=10)
+        result = subprocess.run(['pyinstaller', '--version'],
+                                capture_output=True, text=True, encoding='utf-8', errors='replace',
+                                env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}, timeout=10)
         if result.returncode == 0:
             print(f"✅ PyInstaller可用，版本: {result.stdout.strip()}")
             return True
@@ -60,7 +61,10 @@ def package_decryptor(py_file, output_dir=None):
         print(f"🔧 正在打包: {py_file}")
         print(f"📁 输出目录: {output_dir}")
         
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        # Match Python child output to the decoder; native build diagnostics may
+        # still contain non-UTF-8 bytes, which must not hide the real exit status.
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace',
+                                env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}, timeout=120)
         
         if result.returncode == 0:
             exe_path = output_dir / f"{py_path.stem}.exe"
