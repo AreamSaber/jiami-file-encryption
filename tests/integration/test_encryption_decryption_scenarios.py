@@ -197,9 +197,9 @@ class TestTextFileEncryption(TestEncryptionDecryptionScenarios):
         file_path = self._create_test_file("large.txt", content)
 
         engine = self._get_cpu_engine(security_level=2)
-        start_time = time.time()
+        start_time = time.perf_counter()
         result = engine.encrypt_with_security_level(content)
-        encrypt_time = time.time() - start_time
+        encrypt_time = time.perf_counter() - start_time
 
         assert result is not None
         assert encrypt_time < 30  # 应在30秒内完成
@@ -396,9 +396,9 @@ class TestPerformance(TestEncryptionDecryptionScenarios):
         content = os.urandom(1024 * 1024)  # 1MB
         
         engine = self._get_cpu_engine(security_level=2)
-        start_time = time.time()
+        start_time = time.perf_counter()
         result = engine.encrypt_with_security_level(content)
-        encrypt_time = time.time() - start_time
+        encrypt_time = time.perf_counter() - start_time
 
         assert result is not None
         speed_mbps = len(content) / encrypt_time / (1024 * 1024)
@@ -411,9 +411,9 @@ class TestPerformance(TestEncryptionDecryptionScenarios):
             content = os.urandom(1024 * 1024)  # 1MB
 
             engine = self._get_gpu_engine(security_level=2)
-            start_time = time.time()
+            start_time = time.perf_counter()
             result = engine.encrypt_with_security_level(content)
-            encrypt_time = time.time() - start_time
+            encrypt_time = time.perf_counter() - start_time
 
             assert result is not None
             speed_mbps = len(content) / encrypt_time / (1024 * 1024)
@@ -430,9 +430,9 @@ class TestPerformance(TestEncryptionDecryptionScenarios):
 
         for size in sizes:
             content = os.urandom(size)
-            start_time = time.time()
+            start_time = time.perf_counter()
             result = engine.encrypt_with_security_level(content)
-            encrypt_time = time.time() - start_time
+            encrypt_time = time.perf_counter() - start_time
             times.append(encrypt_time)
             assert result is not None
 

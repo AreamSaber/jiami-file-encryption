@@ -15,9 +15,9 @@ try:
                                 QProgressBar, QMenuBar, QStatusBar, QGroupBox,
                                 QComboBox, QCheckBox, QMessageBox, QTabWidget,
                                 QListWidget, QSplitter, QSpinBox, QSlider,
-                                QFormLayout, QFrame)
-    from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
-    from PyQt6.QtGui import QIcon, QFont, QPixmap, QAction
+                                QFormLayout, QFrame, QLineEdit)
+    from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
+    from PyQt6.QtGui import QIcon, QFont, QPixmap, QAction, QDesktopServices
     GUI_AVAILABLE = True
     GUI_FRAMEWORK = "PyQt6"
 except ImportError:
@@ -27,9 +27,9 @@ except ImportError:
                                       QProgressBar, QMenuBar, QStatusBar, QGroupBox,
                                       QComboBox, QCheckBox, QMessageBox, QTabWidget,
                                       QListWidget, QSplitter, QSpinBox, QSlider,
-                                      QFormLayout, QFrame)
-        from PySide6.QtCore import Qt, QThread, Signal as pyqtSignal, QTimer
-        from PySide6.QtGui import QIcon, QFont, QPixmap, QAction
+                                      QFormLayout, QFrame, QLineEdit)
+        from PySide6.QtCore import Qt, QThread, Signal as pyqtSignal, QTimer, QUrl
+        from PySide6.QtGui import QIcon, QFont, QPixmap, QAction, QDesktopServices
         GUI_AVAILABLE = True
         GUI_FRAMEWORK = "PySide6"
     except ImportError:
@@ -49,7 +49,7 @@ class EncryptionWorker(QThread):
     """加密工作线程"""
     progress = pyqtSignal(int)
     status = pyqtSignal(str)
-    finished = pyqtSignal(dict)
+    succeeded = pyqtSignal(dict)
     error = pyqtSignal(str)
 
     def __init__(self, input_path, output_path, profile, threading_config=None, gpu_config=None):
@@ -117,14 +117,41 @@ class EncryptionWorker(QThread):
                 else:
                     result = self.encryptor.encrypt_folder(self.input_path, self.output_path, self.profile)
 
+                if not result['success']:
+                    self.error.emit(result['error'])
+                    return
                 self.progress.emit(90)
                 self.status.emit("加密完成")
                 self.progress.emit(100)
 
-                self.finished.emit(result)
+                self.succeeded.emit(result)
 
             except Exception as e:
                 self.error.emit(str(e))
+            finally:
+                self.encryptor.hybrid_engine.shutdown()
+
+
+class DecryptionWorker(QThread):
+    """Use the authenticated shared reader; never execute a recovery script."""
+    succeeded = pyqtSignal(dict)
+    failed = pyqtSignal(str)
+
+    def __init__(self, data_path, recovery_path, output_path, parent=None):
+        super().__init__(parent)
+        self.data_path = data_path
+        self.recovery_path = recovery_path or None
+        self.output_path = output_path
+
+    def run(self):
+        try:
+            from src.decryptor.cpu_decryptor import CPUDecryptor
+            reader = CPUDecryptor(recovery_path=self.recovery_path)
+            destination = reader.decrypt_file(self.data_path, self.output_path)
+            self.succeeded.emit({'output_path': destination,
+                                 'warning': reader.last_publication.warning})
+        except Exception as exc:
+            self.failed.emit(str(exc))
 
 
 class MainWindow(QMainWindow):
@@ -138,6 +165,7 @@ class MainWindow(QMainWindow):
         self.logger = Logger("GUI")
         self.encryptor = FileEncryptor()
         self.worker = None
+        self.decryption_worker = None
 
         # 获取系统CPU信息
         self.cpu_count = multiprocessing.cpu_count()
@@ -319,12 +347,9 @@ class MainWindow(QMainWindow):
         button_layout = QHBoxLayout()
         self.encrypt_btn = QPushButton("开始加密")
         self.encrypt_btn.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; padding: 10px; }")
-        self.cancel_btn = QPushButton("取消")
-        self.cancel_btn.setEnabled(False)
 
         button_layout.addStretch()
         button_layout.addWidget(self.encrypt_btn)
-        button_layout.addWidget(self.cancel_btn)
         layout.addLayout(button_layout)
 
         # 进度区域
@@ -356,7 +381,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(decrypt_widget)
 
         # 解密说明
-        info_label = QLabel("解密功能:")
+        info_label = QLabel("还原文件或文件夹")
         info_label.setFont(QFont("Arial", 12, QFont.Weight.Bold))
         layout.addWidget(info_label)
 
@@ -364,25 +389,54 @@ class MainWindow(QMainWindow):
         instruction_text.setMaximumHeight(100)
         instruction_text.setReadOnly(True)
         instruction_text.setPlainText(
-            "1. 使用生成的解密器程序进行解密\n"
-            "2. 解密器位于加密输出目录中\n"
-            "3. 双击解密器或使用命令行运行"
+            "选择 data.jmi（或 .jiami 包目录）与对应的 recovery.jmis。\n"
+            "恢复材料含密钥，请妥善保管；本窗口不会执行 recover.py。\n"
+            "还原目标必须是尚不存在的文件或目录；验证失败不会发布明文。"
         )
         layout.addWidget(instruction_text)
 
-        # 解密器列表
-        decryptor_group = QGroupBox("可用的解密器")
-        decryptor_layout = QVBoxLayout(decryptor_group)
-
-        self.decryptor_list = QListWidget()
-        self.refresh_decryptors()
-        decryptor_layout.addWidget(self.decryptor_list)
-
-        refresh_btn = QPushButton("刷新列表")
-        refresh_btn.clicked.connect(self.refresh_decryptors)
-        decryptor_layout.addWidget(refresh_btn)
-
-        layout.addWidget(decryptor_group)
+        form = QFormLayout()
+        self.decryption_data = QLineEdit()
+        self.decryption_data.setPlaceholderText("data.jmi 路径或 .jiami 包目录")
+        self.decryption_recovery = QLineEdit()
+        self.decryption_recovery.setPlaceholderText("留空时使用密文旁的 recovery.jmis")
+        self.decryption_output = QLineEdit()
+        self.decryption_output.setPlaceholderText("尚不存在的还原文件或目录的完整路径")
+        self.select_cipher_btn = QPushButton("选择密文")
+        self.select_package_btn = QPushButton("选择包目录")
+        self.select_recovery_btn = QPushButton("选择恢复材料")
+        self.select_restore_parent_btn = QPushButton("选择保存位置")
+        data_row = QHBoxLayout()
+        data_row.addWidget(self.decryption_data)
+        data_row.addWidget(self.select_cipher_btn)
+        data_row.addWidget(self.select_package_btn)
+        form.addRow("密文:", data_row)
+        recovery_row = QHBoxLayout()
+        recovery_row.addWidget(self.decryption_recovery)
+        recovery_row.addWidget(self.select_recovery_btn)
+        form.addRow("恢复材料:", recovery_row)
+        output_row = QHBoxLayout()
+        output_row.addWidget(self.decryption_output)
+        output_row.addWidget(self.select_restore_parent_btn)
+        form.addRow("还原目标:", output_row)
+        layout.addLayout(form)
+        self.decrypt_btn = QPushButton("开始解密")
+        self.decrypt_btn.setStyleSheet("QPushButton { padding: 10px; font-weight: bold; }")
+        self.decryption_progress = QProgressBar()
+        self.decryption_progress.setValue(0)
+        self.decryption_status = QLabel("就绪")
+        self.decryption_status.setWordWrap(True)
+        layout.addWidget(self.decrypt_btn)
+        layout.addWidget(self.decryption_progress)
+        layout.addWidget(self.decryption_status)
+        note = QLabel("处理期间请等待完成；当前版本不支持安全中止。")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        self.select_cipher_btn.clicked.connect(self.browse_ciphertext)
+        self.select_package_btn.clicked.connect(self.browse_package)
+        self.select_recovery_btn.clicked.connect(self.browse_recovery)
+        self.select_restore_parent_btn.clicked.connect(self.browse_restore_parent)
+        self.decrypt_btn.clicked.connect(self.start_decryption)
         layout.addStretch()
 
         self.tab_widget.addTab(decrypt_widget, "文件解密")
@@ -478,7 +532,6 @@ CPU核心数: {self.cpu_count}
         self.browse_folder_btn.clicked.connect(self.browse_input_folder)
         self.browse_output_btn.clicked.connect(self.browse_output_dir)
         self.encrypt_btn.clicked.connect(self.start_encryption)
-        self.cancel_btn.clicked.connect(self.cancel_encryption)
         self.threading_combo.currentTextChanged.connect(self.update_threading_info)
 
     def load_profiles(self):
@@ -605,6 +658,8 @@ CPU核心数: {self.cpu_count}
 
     def start_encryption(self):
         """开始加密"""
+        if self._operation_running():
+            return
         input_path = self.input_path_label.text()
         output_path = self.output_path_label.text()
 
@@ -630,7 +685,7 @@ CPU核心数: {self.cpu_count}
 
         # 禁用按钮
         self.encrypt_btn.setEnabled(False)
-        self.cancel_btn.setEnabled(True)
+        self.decrypt_btn.setEnabled(False)
 
         # 重置进度
         self.progress_bar.setValue(0)
@@ -639,24 +694,21 @@ CPU核心数: {self.cpu_count}
         self.worker = EncryptionWorker(input_path, output_path, profile, threading_config, gpu_config)
         self.worker.progress.connect(self.progress_bar.setValue)
         self.worker.status.connect(self.status_label.setText)
-        self.worker.finished.connect(self.encryption_finished)
+        self.worker.succeeded.connect(self.encryption_finished)
         self.worker.error.connect(self.encryption_error)
+        # Restore controls only after QThread has really stopped.
+        self.worker.finished.connect(self._encryption_stopped)
         self.worker.start()
 
-    def cancel_encryption(self):
-        """取消加密"""
-        if self.worker and self.worker.isRunning():
-            self.worker.terminate()
-            self.worker.wait()
-
+    def _encryption_stopped(self):
+        worker = self.worker
+        self.worker = None
         self.encrypt_btn.setEnabled(True)
-        self.cancel_btn.setEnabled(False)
-        self.status_label.setText("已取消")
+        self.decrypt_btn.setEnabled(True)
+        worker.deleteLater()
 
     def encryption_finished(self, result):
         """加密完成"""
-        self.encrypt_btn.setEnabled(True)
-        self.cancel_btn.setEnabled(False)
 
         if result['success']:
             # 基础信息
@@ -689,22 +741,104 @@ CPU核心数: {self.cpu_count}
             QMessageBox.information(self, "成功", message)
 
             if self.auto_open_checkbox.isChecked():
-                import subprocess
-                subprocess.Popen(f'explorer "{os.path.dirname(result["encrypted_file"])}"')
+                QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(result['encrypted_file'])))
         else:
             QMessageBox.critical(self, "错误", f"加密失败: {result['error']}")
 
     def encryption_error(self, error_msg):
         """加密错误"""
-        self.encrypt_btn.setEnabled(True)
-        self.cancel_btn.setEnabled(False)
         QMessageBox.critical(self, "错误", f"加密过程中发生错误: {error_msg}")
 
-    def refresh_decryptors(self):
-        """刷新解密器列表"""
-        self.decryptor_list.clear()
-        # 这里可以扫描常见目录查找解密器
-        self.decryptor_list.addItem("暂无可用的解密器")
+    def _operation_running(self):
+        # Keep the operation reserved until the queued QThread.finished handler
+        # releases it, including while a message box runs a nested event loop.
+        return self.worker is not None or self.decryption_worker is not None
+
+    def _select_ciphertext(self, path):
+        if not path:
+            return
+        source = Path(path)
+        package = source if source.is_dir() else source.parent
+        self.decryption_data.setText(str(source))
+        self.decryption_recovery.setText(str(package / 'recovery.jmis'))
+        suggested = package.name.removesuffix('.jiami')
+        self.decryption_output.setText(str(package.parent / ('restored-' + suggested)))
+
+    def browse_ciphertext(self):
+        path, _ = QFileDialog.getOpenFileName(self, "选择密文", "", "密文 (*.jmi);;所有文件 (*)")
+        self._select_ciphertext(path)
+
+    def browse_package(self):
+        self._select_ciphertext(QFileDialog.getExistingDirectory(self, "选择 .jiami 包目录"))
+
+    def browse_recovery(self):
+        path, _ = QFileDialog.getOpenFileName(self, "选择私密恢复材料", "", "恢复材料 (*.jmis);;所有文件 (*)")
+        if path:
+            self.decryption_recovery.setText(path)
+
+    def browse_restore_parent(self):
+        parent = QFileDialog.getExistingDirectory(self, "选择还原目标的父目录")
+        if parent:
+            name = Path(self.decryption_output.text()).name or 'restored-data'
+            self.decryption_output.setText(str(Path(parent) / name))
+
+    def _set_decryption_busy(self, busy):
+        for widget in (self.decryption_data, self.decryption_recovery, self.decryption_output,
+                       self.select_cipher_btn, self.select_package_btn, self.select_recovery_btn,
+                       self.select_restore_parent_btn, self.decrypt_btn, self.encrypt_btn):
+            widget.setEnabled(not busy)
+
+    def start_decryption(self):
+        if self._operation_running():
+            return
+        source = self.decryption_data.text().strip()
+        recovery = self.decryption_recovery.text().strip()
+        output = self.decryption_output.text().strip()
+        if not source or not Path(source).exists() or not output:
+            QMessageBox.warning(self, "请选择路径", "请选择有效密文或包目录，并填写还原目标的完整路径。")
+            return
+        if recovery and not Path(recovery).is_file():
+            QMessageBox.warning(self, "恢复材料不可用", "请选择对应的 recovery.jmis 文件。")
+            return
+        if Path(output).exists() or Path(output).is_symlink():
+            QMessageBox.warning(self, "目标已存在", "请选择新的还原目标；已有文件或目录不会被覆盖。")
+            return
+        self._set_decryption_busy(True)
+        self.decryption_progress.setRange(0, 0)
+        self.decryption_status.setText("正在验证并还原，请等待完成…")
+        self.decryption_worker = DecryptionWorker(source, recovery, output, self)
+        self.decryption_worker.succeeded.connect(self.decryption_succeeded)
+        self.decryption_worker.failed.connect(self.decryption_failed)
+        self.decryption_worker.finished.connect(self._decryption_stopped)
+        self.decryption_worker.start()
+
+    def decryption_succeeded(self, result):
+        self.decryption_progress.setRange(0, 100)
+        self.decryption_progress.setValue(100)
+        message = "还原完成：" + result['output_path']
+        if result.get('warning'):
+            message += "\n" + result['warning']
+        self.decryption_status.setText(message)
+
+    def decryption_failed(self, message):
+        self.decryption_progress.setRange(0, 100)
+        self.decryption_progress.setValue(0)
+        self.decryption_status.setText("解密失败：" + message)
+        QMessageBox.critical(self, "解密失败", message)
+
+    def _decryption_stopped(self):
+        worker = self.decryption_worker
+        self.decryption_worker = None
+        self._set_decryption_busy(False)
+        worker.deleteLater()
+
+    def closeEvent(self, event):
+        if self._operation_running():
+            QMessageBox.warning(self, "操作尚未完成", "请等待加密或解密结束后再关闭窗口。")
+            event.ignore()
+            return
+        self.encryptor.hybrid_engine.shutdown()
+        event.accept()
 
     def log_message(self, message):
         """添加日志消息"""

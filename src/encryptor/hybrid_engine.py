@@ -21,7 +21,7 @@ from ..thread_pool.thread_manager import thread_manager, ThreadPriority
 class HybridEncryptionEngine:
     """混合加密引擎"""
 
-    def __init__(self, max_threads: Optional[int] = None):
+    def __init__(self, max_threads: Optional[int] = None, *, thread_settings=None):
         """
         初始化混合加密引擎
 
@@ -32,7 +32,7 @@ class HybridEncryptionEngine:
         self.crypto_utils = CryptoUtils()
 
         # 使用全局线程管理器
-        self.thread_manager = thread_manager
+        self.thread_manager = thread_settings if thread_settings is not None else thread_manager
 
         # 如果指定了线程数，设置为用户配置
         if max_threads is not None:
@@ -169,7 +169,7 @@ class HybridEncryptionEngine:
                     __import__('src.crypto.twofish_backend')
                 if layer.get('method') == 'salsa20':
                     __import__('nacl.secret')
-            start_time = time.time()
+            start_time = time.perf_counter()
             data_size = len(data)
             self.logger.info(f"开始混合加密，数据大小: {data_size} 字节")
 
@@ -192,7 +192,7 @@ class HybridEncryptionEngine:
                 result = self._layered_encrypt(data, config)
 
             # 计算耗时
-            duration = time.time() - start_time
+            duration = time.perf_counter() - start_time
             result['duration'] = duration
             result['strategy_used'] = encryption_strategy
 

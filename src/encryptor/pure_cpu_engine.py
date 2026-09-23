@@ -168,9 +168,9 @@ class PureCPUEngine(HybridEncryptionEngine):
         self.logger.info(f"开始{self.encryption_name} - {len(data)} 字节")
         self.logger.info(f"描述: {self.encryption_description}")
 
-        start_time = time.time()
+        start_time = time.perf_counter()
         result = super().encrypt_data(data, config, progress_callback)
-        end_time = time.time()
+        end_time = time.perf_counter()
 
         # 添加CPU引擎特有的元数据
         result['cpu_engine_info'] = {

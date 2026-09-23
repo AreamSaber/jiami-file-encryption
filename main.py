@@ -523,7 +523,7 @@ def test_complete_system(test_dir, test_file):
 def main():
     """主函数"""
     parser = argparse.ArgumentParser(
-        description="文件加密系统 - 企业级数据保护解决方案",
+        description="文件加密系统 - v1 文件与目录加密",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 使用示例:
@@ -543,31 +543,22 @@ def main():
   # 列出可用配置
   python main.py --cli --list-profiles
 
-  # 测试模式 - 完整系统测试
-  python main.py --test
-
-  # 测试模式 - 仅测试CPU加密器
-  python main.py --test --test-cpu
-
-  # 测试模式 - 仅测试GPU加密器
-  python main.py --test --test-gpu
-
-  # 测试模式 - 对比CPU和GPU加密器
-  python main.py --test --test-both
-
-  # 测试模式 - 文件兼容性测试
-  python main.py --test --test-compatibility
+  # 开发验证入口
+  python tools/dev.py test
 
 v1 使用 CPU 基线与共享恢复实现；GPU 真机及 Windows EXE 需单独验收。
         """
     )
+
+    debug_help = "--help-debug" in sys.argv
+    parser.add_argument("--help-debug", action="store_true", help="显示历史诊断选项；日常验证使用 tools/dev.py test")
 
     # 模式选择
     mode_group = parser.add_mutually_exclusive_group(required=False)  # 改为非必需，允许默认模式
     mode_group.add_argument("--separate", action="store_true", help="启动分离式加密引擎模式 (默认)")
     mode_group.add_argument("--gui", action="store_true", help="启动传统图形界面模式")
     mode_group.add_argument("--cli", action="store_true", help="启动命令行模式")
-    mode_group.add_argument("--test", action="store_true", help="启动测试模式")
+    mode_group.add_argument("--test", action="store_true", help="启动测试模式" if debug_help else argparse.SUPPRESS)
 
     # 命令行参数
     parser.add_argument("-i", "--input", help="要加密的文件或文件夹路径")
@@ -578,12 +569,15 @@ v1 使用 CPU 基线与共享恢复实现；GPU 真机及 Windows EXE 需单独�
     parser.add_argument("--version", action="version", version="文件加密系统 v1.0.0")
 
     # 测试模式参数
-    parser.add_argument("--test-cpu", action="store_true", help="仅测试CPU加密器")
-    parser.add_argument("--test-gpu", action="store_true", help="仅测试GPU加密器")
-    parser.add_argument("--test-both", action="store_true", help="对比测试CPU和GPU加密器")
-    parser.add_argument("--test-compatibility", action="store_true", help="测试文件兼容性")
+    parser.add_argument("--test-cpu", action="store_true", help="仅测试CPU加密器" if debug_help else argparse.SUPPRESS)
+    parser.add_argument("--test-gpu", action="store_true", help="仅测试GPU加密器" if debug_help else argparse.SUPPRESS)
+    parser.add_argument("--test-both", action="store_true", help="对比测试CPU和GPU加密器" if debug_help else argparse.SUPPRESS)
+    parser.add_argument("--test-compatibility", action="store_true", help="测试文件兼容性" if debug_help else argparse.SUPPRESS)
 
     args = parser.parse_args()
+    if args.help_debug:
+        parser.print_help()
+        return 0
 
     # 显示欢迎信息
     print("🔐 文件加密系统 v1.0.0")
