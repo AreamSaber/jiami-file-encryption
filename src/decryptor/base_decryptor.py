@@ -2,6 +2,7 @@
 import base64
 import hashlib
 import hmac
+from src.package_format.cancellation import (CancellationToken, OperationCancelled, checkpoint, cancellation_scope, retain_stage)
 from pathlib import Path
 
 from src.exceptions.decryption_errors import IntegrityVerificationError, InvalidMetadataError, LayerDecryptionError
@@ -12,15 +13,19 @@ from src.package_format.archive import unpack_folder
 from .algorithm_registry import AlgorithmRegistry
 
 
-def load_package(data_path, recovery_path=None, recovery_bytes=None):
+def load_package(data_path, recovery_path=None, recovery_bytes=None, *, cancellation=None):
+    checkpoint(cancellation)
     path = Path(data_path)
     if path.is_dir():
         path = path / 'data.jmi'
     if recovery_bytes is None:
         recovery_bytes = read_frame(recovery_path or path.with_name('recovery.jmis'), secret=True)
+    checkpoint(cancellation)
     secret, _, key = decode_frame(recovery_bytes, secret=True)
     public, body, _ = decode_frame(read_frame(path), key)
+    checkpoint(cancellation)
     validate_headers(public, secret, len(body))
+    checkpoint(cancellation)
     return public, secret, body
 
 
@@ -36,54 +41,66 @@ class BaseDecryptor:
     def decrypt_layer(self, data, algorithm, params):
         return self.registry.get_handler(algorithm).decrypt(data, {**params, 'algorithm': algorithm})
 
-    def _node(self, data, node, secret):
+    def _node(self, data, node, secret, cancellation=None):
+        checkpoint(cancellation)
         require(len(data) == node['output_size'], 'Cipher chunk length mismatch')
         if node['algorithm'] == 'chunked':
             result, offset = [], 0
             for child, recovery in zip(node['chunks'], secret['chunks']):
                 size = child['output_size']
-                result.append(self._node(data[offset:offset+size], child, recovery))
+                result.append(self._node(data[offset:offset+size], child, recovery, cancellation))
                 offset += size
             plain = b''.join(result)
         else:
             params = _wire({**node['params'], **secret['params']}, False)
             try:
-                plain = self.decrypt_layer(data, node['algorithm'], params)
+                with cancellation_scope(cancellation):
+                    plain = self.decrypt_layer(data, node['algorithm'], params)
+            except OperationCancelled:
+                raise
             except Exception as exc:
                 # Never return the original ciphertext or unverified padding on failure.
                 raise LayerDecryptionError('Cipher operation failed', node['layer_index'], node['algorithm']) from exc
         require(len(plain) == node['input_size'], 'Recovered chunk length mismatch')
         return plain
 
-    def decrypt_bytes(self, data_path, recovery_path=None):
-        public, secret, body = load_package(data_path, recovery_path or self.recovery_path, self.recovery_bytes)
+    def decrypt_bytes(self, data_path, recovery_path=None, *, cancellation=None):
+        checkpoint(cancellation)
+        public, secret, body = load_package(data_path, recovery_path or self.recovery_path, self.recovery_bytes, cancellation=cancellation)
         field = 'layers' if public['topology'] == 'sequential' else 'chunk_layers'
         if field == 'layers':
             plain = body
             for node, recovery in reversed(list(zip(public[field], secret[field]))):
-                plain = self._node(plain, node, recovery)
+                plain = self._node(plain, node, recovery, cancellation)
         else:
             result, offset = [], 0
             for node, recovery in zip(public[field], secret[field]):
                 size = node['output_size']
-                result.append(self._node(body[offset:offset+size], node, recovery))
+                result.append(self._node(body[offset:offset+size], node, recovery, cancellation))
                 offset += size
             plain = b''.join(result)
         if len(plain) != public['original_size'] or not hmac.compare_digest(hashlib.sha256(plain).hexdigest(), secret['plaintext_sha256']):
             raise IntegrityVerificationError('Recovered plaintext does not match the original')
+        checkpoint(cancellation)
         return plain, public
 
-    def decrypt_file(self, encrypted_file, output_path=None, recovery_path=None):
-        plain, public = self.decrypt_bytes(encrypted_file, recovery_path)
+    def decrypt_file(self, encrypted_file, output_path=None, recovery_path=None, *, cancellation=None):
+        cancellation = cancellation or CancellationToken()
+        self.last_publication = None
+        plain, public = self.decrypt_bytes(encrypted_file, recovery_path, cancellation=cancellation)
         source = Path(encrypted_file)
         parent = source if source.is_dir() else source.parent
         destination = Path(output_path) if output_path is not None else parent / ('restored-' + public['original_name'])
         if public['kind'] == 'folder':
             stage = make_stage(destination)
-            unpack_folder(plain, stage)
-            self.last_publication = publish_directory(stage, destination, lambda _: None)
+            try:
+                unpack_folder(plain, stage, cancellation=cancellation)
+                self.last_publication = publish_directory(stage, destination, lambda _: None, cancellation=cancellation)
+            except BaseException as exc:
+                retain_stage(exc, stage, 'verified plaintext')
+                raise
         else:
-            self.last_publication = publish_file(plain, destination)
+            self.last_publication = publish_file(plain, destination, cancellation=cancellation)
         return str(self.last_publication.path)
 
     @staticmethod

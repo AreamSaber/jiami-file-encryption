@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import tempfile
 from dataclasses import dataclass
+from .cancellation import checkpoint, retain_stage
 
 
 class PublicationUnsupportedError(OSError):
@@ -19,10 +20,13 @@ class PublicationResult:
     warning: str = ''
 
 
-def write_private(path, data):
+def write_private(path, data, *, cancellation=None):
+    checkpoint(cancellation)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, 'wb') as stream:
-        stream.write(data)
+        for offset in range(0, len(data), 65536):
+            checkpoint(cancellation)
+            stream.write(data[offset:offset + 65536])
         stream.flush()
         os.fsync(stream.fileno())
 
@@ -73,16 +77,21 @@ def make_stage(destination):
     return stage
 
 
-def publish_directory(stage, destination, validate):
+def publish_directory(stage, destination, validate, *, cancellation=None):
     stage, destination = Path(stage).resolve(), absolute_destination(destination)
     if stage.parent != destination.parent or stage.stat().st_dev != destination.parent.stat().st_dev:
         raise OSError(errno.EXDEV, 'Staging must be a sibling on the destination filesystem')
+    checkpoint(cancellation)
     validate(stage)
+    checkpoint(cancellation)
     if os.name != 'nt':
         # Children names need synchronization as well as their file contents.
         for root, dirs, files in os.walk(stage, topdown=False):
+            checkpoint(cancellation)
             sync_directory(root)
         sync_directory(stage.parent)
+    if cancellation is not None:
+        cancellation.enter_publishing()
     rename_noreplace(stage, destination)
     if os.name == 'nt':
         return PublicationResult(destination, 'unconfirmed', 'Windows directory durability is not guaranteed')
@@ -93,23 +102,30 @@ def publish_directory(stage, destination, validate):
     return PublicationResult(destination, 'synced')
 
 
-def publish_file(data, destination):
+def publish_file(data, destination, *, cancellation=None):
     """Used for recovered plaintext: content complete before its name appears."""
+    checkpoint(cancellation)
     destination = absolute_destination(destination)
     stage = make_stage(destination)
-    source = stage / 'payload'
-    write_private(source, data)
-    if os.name != 'nt':
-        sync_directory(stage)
-    rename_noreplace(source, destination)
-    if os.name != 'nt':
-        try:
-            sync_directory(destination.parent)
-        except OSError as exc:
-            return PublicationResult(destination, 'unconfirmed', 'Published; durability unconfirmed: ' + str(exc))
-    warning = 'Windows directory durability is not guaranteed' if os.name == 'nt' else ''
     try:
-        stage.rmdir()
-    except OSError as exc:
-        warning += ' Published; empty staging cleanup failed: ' + str(exc)
-    return PublicationResult(destination, 'unconfirmed' if os.name == 'nt' else 'synced', warning)
+        source = stage / 'payload'
+        write_private(source, data, cancellation=cancellation)
+        if os.name != 'nt':
+            sync_directory(stage)
+        if cancellation is not None:
+            cancellation.enter_publishing()
+        rename_noreplace(source, destination)
+        if os.name != 'nt':
+            try:
+                sync_directory(destination.parent)
+            except OSError as exc:
+                return PublicationResult(destination, 'unconfirmed', 'Published; durability unconfirmed: ' + str(exc))
+        warning = 'Windows directory durability is not guaranteed' if os.name == 'nt' else ''
+        try:
+            stage.rmdir()
+        except OSError as exc:
+            warning += ' Published; empty staging cleanup failed: ' + str(exc)
+        return PublicationResult(destination, 'unconfirmed' if os.name == 'nt' else 'synced', warning)
+    except BaseException as exc:
+        retain_stage(exc, stage, 'verified plaintext or recovery secrets')
+        raise

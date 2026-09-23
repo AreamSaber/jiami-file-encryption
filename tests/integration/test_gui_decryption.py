@@ -189,3 +189,61 @@ def test_encryption_worker_and_decryption_lifecycle(app, window, tmp_path):
     QTest.mouseClick(win.decrypt_btn, Qt.MouseButton.LeftButton)
     wait_for(app, lambda: win.decryption_worker is None)
     assert target.read_bytes() == source.read_bytes()
+
+
+@pytest.mark.parametrize('direction', ['encrypt', 'decrypt'])
+@pytest.mark.parametrize('winner', ['cancel', 'publish'])
+def test_cancel_button_waits_for_real_worker_and_gate_order(app, window, tmp_path, monkeypatch, direction, winner):
+    from src.package_format.cancellation import PublicationGate
+    win, messages = window
+    if direction == 'decrypt':
+        data, content = package(tmp_path)
+        target = tmp_path / 'restored'
+        win._select_ciphertext(str(data))
+        win.decryption_output.setText(str(target))
+        button, cancel = win.decrypt_btn, win.cancel_decrypt_btn
+        status, attr = win.decryption_status, 'decryption_worker'
+    else:
+        source = tmp_path / 'source'; source.write_bytes(b'Qt cancellation plaintext')
+        target = tmp_path / 'out/source.jiami'
+        win.tab_widget.setCurrentIndex(0)
+        win.input_path_label.setText(str(source))
+        win.output_path_label.setText(str(target.parent))
+        win.profile_combo.setCurrentIndex(win.profile_combo.findData('basic'))
+        button, cancel = win.encrypt_btn, win.cancel_encrypt_btn
+        status, attr = win.status_label, 'worker'
+    entered, release = threading.Event(), threading.Event()
+    actual = PublicationGate.enter_publishing
+    def held(gate):
+        result = actual(gate) if winner == 'publish' else None
+        entered.set()
+        assert release.wait(10)
+        return actual(gate) if winner == 'cancel' else result
+    monkeypatch.setattr(PublicationGate, 'enter_publishing', held)
+    QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+    try:
+        wait_for(app, entered.is_set)
+        worker = getattr(win, attr)
+        assert worker.isRunning() and cancel.isEnabled() and not target.exists()
+        QTest.mouseClick(cancel, Qt.MouseButton.LeftButton)
+        assert ('取消请求处理中' if winner == 'cancel' else '取消请求过晚') in status.text()
+        assert not cancel.isEnabled() and not win.encrypt_btn.isEnabled() and not win.decrypt_btn.isEnabled()
+        assert getattr(win, attr) is worker and worker.isRunning()
+        assert not win.close() and win.isVisible()
+        assert messages[-1][0] == 'warning'
+        assert not target.exists()
+    finally:
+        release.set()
+        wait_for(app, lambda: getattr(win, attr) is None)
+    assert win.encrypt_btn.isEnabled() and win.decrypt_btn.isEnabled() and not cancel.isEnabled()
+    if winner == 'cancel':
+        assert '已取消' in status.text() and not target.exists()
+        assert 'Private staging retained' in status.text()
+        assert not any(kind == 'critical' for kind, _, _ in messages)
+    else:
+        assert target.exists() and '完成' in status.text()
+        if direction == 'encrypt':
+            assert CPUDecryptor().decrypt_bytes(target)[0] == source.read_bytes()
+            assert '过晚' in status.text() and 'too late' in messages[-1][2]
+        else:
+            assert target.read_bytes() == content and 'too late' in status.text()

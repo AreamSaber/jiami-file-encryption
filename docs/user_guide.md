@@ -52,7 +52,7 @@ On the encryption tab, choose the source, output directory and profile. On the d
 3. Enter the complete new destination path: a filename for file recovery or directory name for folder recovery. The save-location picker changes its parent directory; the field remains editable.
 4. Start decryption and wait for the result. The busy indicator does not claim a percentage. Existing destinations are refused; authentication failures publish no plaintext.
 
-This interface calls the shared authenticated reader and never executes a selected `recover.py`. Windows durability warnings remain visible after recovery. Close and overlapping operations are blocked until the worker finishes. Forced thread termination has been removed; safe cancellation is not yet implemented.
+This interface calls the shared authenticated reader and never executes a selected `recover.py`. Windows durability warnings remain visible after recovery. The Cancel Encryption and Cancel Decryption buttons request cooperative cancellation. The UI keeps controls locked and displays a pending state until the worker actually stops. Native cipher/RSA calls and some bounded operations must finish before responding. If publication has already won the gate, the request is reported as too late; a completed output remains successful. Close and overlapping operations remain blocked until the worker finishes.
 
 ## Batch operations
 
@@ -60,7 +60,9 @@ This interface calls the shared authenticated reader and never executes a select
 .venv/bin/python -m cli.enhanced_cli batch -d ./documents -o ./encrypted --profile basic --parallel 2
 ```
 
-Use a separate output directory. `--parallel` must be a positive integer and is an upper request, not a promised number of simultaneous workers. Each file has its own engine and thread settings. The effective CPU thread budget caps outer workers and is divided among their inner pools. Outer orchestration threads are additional to that inner budget. All pools are closed after success or failure. A partial batch failure returns a nonzero process status and lists the failed files; successful packages remain available. The processed count and progress indicator count all completed attempts, including failures; successful and failed totals are reported separately.
+Use a separate output directory. `--parallel` must be a positive integer and is an upper request, not a promised number of simultaneous workers. Each file has its own engine and thread settings. The effective CPU thread budget caps outer workers and is divided among their inner pools. Outer orchestration threads are additional to that inner budget. All pools are closed after success, failure or cancellation. Ctrl+C stops new admissions and requests cancellation of active files. Successful, failed and cancelled totals are separate; processed count includes all resolved attempts. Exit status is 1 if any real failure occurred, otherwise 130 if any file was cancelled, otherwise 0. Completed packages remain available, including a publication that won the race against cancellation.
+
+Ctrl+C uses the same cooperative behavior in `main.py --cli`, enhanced CLI encryption and newly generated recovery programs. Repeated Ctrl+C does not forcibly terminate native work. Existing recovery programs retain the code embedded when they were generated. Cancelled staging is retained and its path reported; it can contain keys or verified plaintext. See [cancellation scope and limits](resource-cancellation.md).
 
 Thread limits do not bound memory. On a small host, start with one batch worker and representative small samples; see [memory measurements](memory-profile.md).
 
