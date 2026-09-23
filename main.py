@@ -50,14 +50,18 @@ def check_dependencies():
         'cryptography': 'cryptography'
     }
 
+    # 按加密配置必需；缺失时允许使用不含对应算法的配置
+    profile_packages = {
+        'nacl.secret': ('PyNaCl', 'salsa20_stream 及所有含 salsa20 的配置')
+    }
+
     # 可选依赖包
     optional_packages = {
-        'Crypto': 'pycryptodome',
-        'nacl': 'PyNaCl',
         'PIL': 'Pillow'
     }
 
     missing_core = []
+    missing_profile = []
     missing_optional = []
 
     # 检查核心依赖
@@ -66,6 +70,12 @@ def check_dependencies():
             __import__(import_name)
         except ImportError:
             missing_core.append(display_name)
+
+    for import_name, (display_name, profiles) in profile_packages.items():
+        try:
+            __import__(import_name)
+        except ImportError:
+            missing_profile.append((display_name, profiles))
 
     # 检查可选依赖
     for import_name, display_name in optional_packages.items():
@@ -82,13 +92,19 @@ def check_dependencies():
         print("\n请运行: pip install cryptography")
         return False
 
+    if missing_profile:
+        print("⚠️  缺少配置必需依赖:")
+        for package, profiles in missing_profile:
+            print(f"   - {package}: {profiles} 不可用")
+        print("请安装: pip install " + " ".join(p for p, _ in missing_profile))
+        print("仅继续使用依赖齐全的配置；不会替换加密算法。\n")
+
     # 如果缺少可选依赖，只显示警告
     if missing_optional:
         print("⚠️  缺少可选依赖包（部分功能可能不可用）:")
         for package in missing_optional:
             print(f"   - {package}")
-        print("\n可选安装: pip install pycryptodome PyNaCl Pillow")
-        print("✅ 核心功能可用，继续运行...\n")
+        print("\n可选安装: pip install " + " ".join(missing_optional))
 
     return True
 

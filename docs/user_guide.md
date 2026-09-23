@@ -38,8 +38,11 @@
    # 或
    pip install PySide6
    
-   # 可选扩展
-   pip install pycryptodome PyNaCl Pillow
+   # salsa20_stream 及所有含 salsa20 的配置必需；缺失则这些配置不可用
+   pip install PyNaCl
+
+   # 图像处理（可选）
+   pip install Pillow
    ```
 
 3. **验证安装**

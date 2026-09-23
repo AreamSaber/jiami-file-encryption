@@ -331,18 +331,18 @@ class EnhancedCLI:
     def _check_dependencies(self):
         """检查依赖包"""
         dependencies = {
-            'cryptography': '核心加密库',
-            'PyNaCl': 'NaCl加密库',
-            'Pillow': '图像处理 (隐写术)',
-            'psutil': '系统信息',
-            'PyQt6': 'GUI界面 (可选)',
-            'PySide6': 'GUI界面 (可选)'
+            'cryptography': ('cryptography', '核心加密库'),
+            'nacl.secret': ('PyNaCl', 'salsa20_stream 及所有含 salsa20 的配置必需；缺失则这些配置不可用'),
+            'PIL': ('Pillow', '图像处理 (隐写术)'),
+            'psutil': ('psutil', '系统信息'),
+            'PyQt6': ('PyQt6', 'GUI界面 (可选)'),
+            'PySide6': ('PySide6', 'GUI界面 (可选)')
         }
         
         print("📦 依赖包检查:")
-        for package, description in dependencies.items():
+        for import_name, (package, description) in dependencies.items():
             try:
-                __import__(package)
+                __import__(import_name)
                 print(f"  ✅ {package}: {description}")
             except ImportError:
                 print(f"  ❌ {package}: {description} (未安装)")
