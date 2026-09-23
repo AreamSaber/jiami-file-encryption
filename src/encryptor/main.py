@@ -14,6 +14,7 @@ import sys
 import json
 import argparse
 import logging
+import copy
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 from datetime import datetime
@@ -39,7 +40,7 @@ from ..utils.config_manager import ConfigManager
 class FileEncryptor:
     """文件加密器主类"""
 
-    def __init__(self, config_dir: Optional[str] = None, max_threads: Optional[int] = None, *, thread_settings=None):
+    def __init__(self, config_dir: Optional[str] = None, max_threads: Optional[int] = None, *, thread_settings=None, resource_policy=None, resource_ledger=None):
         """
         初始化文件加密器
 
@@ -49,6 +50,11 @@ class FileEncryptor:
         """
         self.config_dir = config_dir or self._get_default_config_dir()
         self.logger = Logger("FileEncryptor")
+        from src.resources.reservations import DEFAULT_LEDGER, ReservationLedger
+        if resource_policy is not None and resource_ledger is not None:
+            raise ValueError('Supply resource_policy or resource_ledger, not both')
+        self.resource_ledger = (resource_ledger if resource_ledger is not None else
+                                ReservationLedger(resource_policy) if resource_policy is not None else DEFAULT_LEDGER)
 
         # 初始化全局线程管理器
         self.thread_manager = thread_settings if thread_settings is not None else thread_manager
@@ -208,30 +214,56 @@ class FileEncryptor:
 
     def _encrypt_path(self, input_path, output_dir, profile, custom_config, kind, exclude_patterns=None):
         from src.package_format.writer import write_package
+        original_settings = self.hybrid_engine.thread_manager
         try:
             path = Path(input_path)
             if not (path.is_file() if kind == 'file' else path.is_dir()):
                 raise FileNotFoundError(input_path)
             if kind == 'folder' and Path(output_dir).resolve().is_relative_to(path.resolve()):
                 raise ValueError('Output must be outside the input folder')
-            config = custom_config or self._get_encryption_config(profile)
-            data = self.file_processor.read_file(path) if kind == 'file' else self.file_processor.process_folder(path, exclude_patterns or [])
-            encrypted = self.hybrid_engine.encrypt_data(data, config)
-            destination = Path(output_dir) / (path.name + '.jiami')
-            publication = write_package(encrypted, data, destination, profile=profile, original_name=path.name, kind=kind)
-            return {'success': True, 'package_dir': str(publication.path),
-                    'encrypted_file': str(publication.path/'data.jmi'),
-                    'recovery_file': str(publication.path/'recovery.jmis'),
-                    'decryptor_file': str(publication.path/'recover.py'),
-                    'original_size': len(data), 'encrypted_size': len(encrypted['encrypted_data']),
-                    'compression_ratio': len(encrypted['encrypted_data'])/len(data) if data else 0,
-                    'encryption_time': encrypted.get('duration', 0), 'profile_used': profile,
-                    'backend_used': 'cpu', 'publication_state': 'published', 'durability': publication.durability,
-                    'warning': publication.warning}
+            config = copy.deepcopy(custom_config or self._get_encryption_config(profile))
+            if custom_config is None:
+                # Keep admission/execution topology stable if another component
+                # changes the shared GUI/default settings during this operation.
+                self.hybrid_engine.thread_manager = original_settings.snapshot()
+            folder_plan = None
+            if kind == 'folder':
+                from src.package_format.archive import plan_folder
+                folder_plan = plan_folder(path, exclude_patterns or [])
+                size = folder_plan.archive_size
+            else:
+                size = path.stat().st_size
+            estimate = self.hybrid_engine.estimate_admission(size, config, profile=profile,
+                                                            custom=custom_config is not None)
+            if not estimate.guaranteed:
+                self.logger.warning(estimate.reason + '; using existing post-hoc validation')
+            # Entry metadata has its own allocation cost, beyond archived bytes.
+            extra = len(folder_plan.entries) * 4096 if folder_plan is not None else 0
+            with self.resource_ledger.reserve(estimate, extra_bytes=extra):
+                if kind == 'file':
+                    data = self.file_processor.read_file(path, expected_size=size if estimate.guaranteed else None)
+                else:
+                    data = self.file_processor.process_folder(path, exclude_patterns or [], plan=folder_plan)
+                encrypted = self.hybrid_engine.encrypt_data(data, config, admission=estimate)
+                if estimate.guaranteed and len(encrypted['encrypted_data']) != estimate.output_size:
+                    raise ValueError('Produced size differs from admitted plan; output was not published')
+                destination = Path(output_dir) / (path.name + '.jiami')
+                publication = write_package(encrypted, data, destination, profile=profile, original_name=path.name, kind=kind)
+                return {'success': True, 'package_dir': str(publication.path),
+                        'encrypted_file': str(publication.path/'data.jmi'),
+                        'recovery_file': str(publication.path/'recovery.jmis'),
+                        'decryptor_file': str(publication.path/'recover.py'),
+                        'original_size': len(data), 'encrypted_size': len(encrypted['encrypted_data']),
+                        'compression_ratio': len(encrypted['encrypted_data'])/len(data) if data else 0,
+                        'encryption_time': encrypted.get('duration', 0), 'profile_used': profile,
+                        'backend_used': 'cpu', 'publication_state': 'published', 'durability': publication.durability,
+                        'warning': publication.warning, 'admission': estimate.summary()}
         except Exception as exc:
             self.logger.error('Encryption failed: ' + str(exc))
             return {'success': False, 'error': str(exc), 'error_code': getattr(exc, 'error_code', 'ENC000'),
                     'file_path': str(input_path), 'details': getattr(exc, '__notes__', [])}
+        finally:
+            self.hybrid_engine.thread_manager = original_settings
 
     def _get_encryption_config(self, profile: str) -> Dict:
         """获取加密配置"""

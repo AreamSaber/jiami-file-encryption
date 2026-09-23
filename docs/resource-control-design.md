@@ -1,8 +1,33 @@
 # Resource admission and cooperative cancellation — design for Claude review
 
-Status: proposal, not implemented. The existing authenticated v1 format, cipher
-variants and publication contract remain unchanged. Implementation follows manual
-architecture review, as required by AGENTS.md.
+Status: Claude approved the design with refinements after reviewing
+`5701e428a42f537d380a2fb063f995fa678bccd7`. Phase 1 (producer admission and
+reservations) is implemented for a separate review; see [implementation and
+limits](resource-admission.md). Phase 2 (cooperative cancellation) is still a
+design, not implemented. The authenticated v1 format, cipher variants and
+publication contract remain unchanged.
+
+## Recorded architecture decisions
+
+Implement admission first; cancellation requires its own subsequent range.
+Size relations must have one source in schema.py, shared with validation, rather
+than a second set of padding/expansion formulas. Exact ciphertext and collection
+sizes are required for the 11 shipped profiles and actual topology. Custom or
+unrecognized configurations must explicitly report no admission guarantee and
+keep post-hoc behavior. Memory reservations must use profile-aware estimates;
+256 MiB budget/reserve defaults remain provisional and unvalidated.
+
+For Phase 2, PublicationGate.request_cancel() and enter_publishing() must share
+one lock and transition once from pending to cancelled or publishing. Retain
+private staging under the existing contract. Counts stay distinct; exit
+precedence is error 1, otherwise cancellation 130, otherwise success 0. A request
+that loses to publishing must not count as cancellation; report that it arrived
+too late. A publication failure remains a real failure. Both race orderings need
+deterministic barrier tests and a real Qt worker test for pending cancellation.
+
+The proposal below is retained as design context, with these decisions governing
+implementation. Recovery admission, cancellation, GUI wiring and exit-code
+changes are outside Phase 1.
 
 ## Evidence and first objective
 
@@ -118,7 +143,7 @@ Cancellation may lead to cancelled before publishing. Other errors lead to faile
   residential host. GUI wording explicitly distinguishes requesting cancellation
   from cancellation having completed.
 
-## Questions for Claude
+## Original review questions (answered; retained for context)
 
 Respond entirely in English. Review this design before Codex implements it.
 Approve or revise: (1) early bound checks and conservative handling of unknown

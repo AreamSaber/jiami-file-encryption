@@ -36,4 +36,6 @@ BatchProcessor 的 FileEncryptor 只作为配置模板。每个文件任务获�
 
 主 Qt 窗口的解密入口直接使用 CPUDecryptor 处理 data.jmi/包目录与 recovery.jmis，不执行恢复脚本。窗口一次只运行一个任务，收到真实 QThread.finished 后才释放引用与恢复操作按钮；关闭期间不会强行终止写入线程。当前没有安全取消或流式进度百分比。
 
+Claude 已批准先实现准入、后实现取消。FileEncryptor 的已识别内置档位在正文读取前共用 schema 大小关系与实际拓扑做检查，按档位估算并预留内存；默认实例在进程内共享账本，异常释放前等待内层工作结束。文件夹计入 ZIP 开销并限制成员读取增长。这是软预算，不保证 RSS/OOM 上限；自定义配置、恢复入口和独立 GPU 适配器的范围见 [准入说明](resource-admission.md)。取消机制尚未实现。
+
 旧的 LargeFileProcessor、MemoryManager、ProgressTracker、InterruptController 和未使用的临时文件辅助方法已移除。它们没有接入 v1 发布流程，不能作为流式大文件支持依据。实际测量见 [内存记录](memory-profile.md)。

@@ -30,9 +30,22 @@ def test_all_profiles_roundtrip(tmp_path, encryptor, profile, size):
     original = bytes((i * 37) % 256 for i in range(size))
     source = tmp_path/'input.bin'
     source.write_bytes(original)
+    estimate = encryptor.hybrid_engine.estimate_admission(
+        size, encryptor._get_encryption_config(profile), profile=profile)
+    assert estimate.guaranteed and not estimate.violations
     result = encryptor.encrypt_file(source, tmp_path/'packages', profile)
     assert result['success'], result
     public, secret, body = load_package(result['encrypted_file'])
+    assert result['admission']['status'] == 'exact_sizes_soft_memory'
+    assert estimate.output_size == len(body)
+    field = 'chunk_layers' if estimate.strategy == 'parallel' else 'layers'
+    for stage, node, recovery in zip(estimate.stages, public[field], secret[field]):
+        nodes, secrets = node.get('chunks', [node]), recovery.get('chunks', [recovery])
+        assert len(stage) == len(nodes)
+        for predicted, actual, private in zip(stage, nodes, secrets):
+            assert predicted.output_size == actual['output_size']
+            assert predicted.insertion_count == sum(len(op[1]) for op in private['params'].get('applied_operations', [])
+                                                    if op[0] == 'frequency_analysis_resistance')
     assert public['profile'] == profile
     assert public['topology'] == ('parallel_chunks' if profile == 'parallel_fast' else 'sequential')
     output = tmp_path/'restored.bin'

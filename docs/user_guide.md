@@ -64,11 +64,18 @@ Use a separate output directory. `--parallel` must be a positive integer and is 
 
 Thread limits do not bound memory. On a small host, start with one batch worker and representative small samples; see [memory measurements](memory-profile.md).
 
+Recognized factory profiles now receive size preflight before plaintext reads and
+share a soft allocation ledger. The default reservation budget and available-memory
+reserve are each a provisional, unvalidated 256 MiB; they are not an OS memory cap.
+An operation that cannot fit alone is refused immediately. Custom/modified profiles
+explicitly report no admission guarantee and keep post-hoc validation. See
+[resource admission](resource-admission.md) for Python configuration and scope.
+
 ## Limits and failures
 
 All 11 factory profiles use the CPU baseline. `paranoid_gpu` is a retained name, not proof of GPU execution. Missing algorithm dependencies produce explicit errors, not substitute ciphers. RSA profiles retain their existing local recovery-key model. There is no PBKDF2/Argon2 password protection or recipient-key delivery.
 
-v1 rejects legacy pickle artifacts. Migration requires a separate design and tool. The pipeline buffers complete data, and some transforms expand it. The 1 GiB frame/archive limit and 1 MiB JSON-header limit are format bounds, not safe working-memory limits. The measured `paranoid` topology already rejected a 128 KiB input because its recovery-operation list exceeded the existing 100,000-item bound; see the memory measurements before selecting it for larger inputs.
+v1 rejects legacy pickle artifacts. Migration requires a separate design and tool. The pipeline buffers complete data, and some transforms expand it. The 1 GiB frame/archive limit and 1 MiB JSON-header limit are format bounds, not safe working-memory limits. The measured `paranoid` topology rejected a 128 KiB input because its recovery-operation list exceeded the existing 100,000-item bound. Recognized plans now reject that predictable violation before reading plaintext or doing the expensive transforms; other metadata checks remain after encryption.
 
 Publication uses private staging and a no-replace operation. Publication failures may retain private `.jiami-stage-*` directories for diagnosis; they can contain secrets or verified plaintext. Inspect the reported paths and remove only the failed operation's staging directory when no process is using it. There is no automatic overwrite, takeover or cross-filesystem copying. Windows does not promise power-loss durability.
 
