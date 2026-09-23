@@ -127,6 +127,20 @@ class GlobalThreadManager:
         """获取当前生效的配置"""
         return self.active_config.copy()
 
+    def snapshot(self):
+        """Independent settings for a task; never registers another singleton.
+
+        Take the snapshot before starting concurrent tasks. Later configuration
+        changes on either instance do not affect the other instance.
+        """
+        settings = object.__new__(type(self))
+        settings.logger = self.logger
+        settings.cpu_count = self.cpu_count
+        settings.thread_configs = {p: dict(c) for p, c in self.thread_configs.items()}
+        settings.active_config = dict(self.active_config)
+        settings._initialized = True
+        return settings
+
     def get_max_threads(self) -> int:
         """获取最大线程数"""
         return self.active_config.get('max_threads', self.cpu_count)

@@ -170,7 +170,7 @@ class EnhancedCLI:
             if parsed_args.command == 'encrypt':
                 self._handle_encrypt(parsed_args)
             elif parsed_args.command == 'batch':
-                self._handle_batch(parsed_args)
+                return self._handle_batch(parsed_args)
             elif parsed_args.command == 'config':
                 self._handle_config(parsed_args)
             elif parsed_args.command == 'info':
@@ -234,8 +234,12 @@ class EnhancedCLI:
         
         if result['success']:
             print(f"✅ 批处理完成! 处理了 {result['processed_count']} 个文件")
+            return 0
         else:
-            print(f"❌ 批处理失败: {result['error']}")
+            print(f"❌ 批处理失败: {result.get('error', '部分文件未能完成')}")
+            for error in result.get('errors', []):
+                print(f"   {error}")
+            return 1
             
     def _handle_config(self, args):
         """处理配置管理命令"""
@@ -388,4 +392,4 @@ class EnhancedCLI:
 
 if __name__ == "__main__":
     cli = EnhancedCLI()
-    cli.run()
+    raise SystemExit(cli.run())

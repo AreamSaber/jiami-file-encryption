@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.encryptor.main import FileEncryptor
 from src.utils.logger import Logger
 from src.utils.file_utils import FileUtils
+from src.thread_pool.thread_manager import thread_manager, ThreadPriority
 
 
 class BatchProcessor:
@@ -27,7 +28,8 @@ class BatchProcessor:
     def __init__(self):
         """初始化批处理器"""
         self.logger = Logger("BatchProcessor")
-        self.encryptor = FileEncryptor()
+        # A configuration template only; concurrent tasks never use its engine.
+        self.encryptor = FileEncryptor(thread_settings=thread_manager.snapshot())
         self.file_utils = FileUtils()
         self.progress_lock = threading.Lock()
         self.processed_count = 0
@@ -46,6 +48,7 @@ class BatchProcessor:
             处理结果
         """
         try:
+            self._validate_parallel(options)
             self.logger.info(f"开始批量处理: {input_dir}")
             
             # 扫描文件
@@ -182,7 +185,9 @@ class BatchProcessor:
     
     def _parallel_process(self, files: List[str], output_dir: str, options: Dict[str, Any]) -> Dict[str, Any]:
         """并行处理文件"""
-        max_workers = options.get('parallel', 1)
+        budget = max(1, self.encryptor.thread_manager.get_max_threads())
+        max_workers = min(options.get('parallel', 1), len(files), budget)
+        inner_threads = max(1, budget // max_workers)
         successful = 0
         failed = 0
         errors = []
@@ -190,7 +195,7 @@ class BatchProcessor:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # 提交所有任务
             future_to_file = {
-                executor.submit(self._process_single_file, file_path, output_dir, options): file_path
+                executor.submit(self._process_single_file, file_path, output_dir, options, inner_threads): file_path
                 for file_path in files
             }
             
@@ -214,20 +219,27 @@ class BatchProcessor:
             'errors': errors
         }
     
-    def _process_single_file(self, file_path: str, output_dir: str, options: Dict[str, Any]):
+    @staticmethod
+    def _validate_parallel(options):
+        count = options.get('parallel', 1)
+        if type(count) is not int or count < 1:
+            raise ValueError('parallel must be a positive integer')
+
+    def _process_single_file(self, file_path: str, output_dir: str, options: Dict[str, Any], inner_threads=None):
         """处理单个文件"""
         profile = options.get('profile', 'standard')
         
-        # 生成输出文件名
-        filename = os.path.basename(file_path)
-        output_filename = f"{filename}.jiami"
-        output_path = os.path.join(output_dir, output_filename)
-        
-        # 执行加密
-        result = self.encryptor.encrypt_file(file_path, output_dir, profile)
-        
-        if not result['success']:
-            raise Exception(result.get('error', '加密失败'))
+        settings = self.encryptor.thread_manager.snapshot()
+        if inner_threads is not None:
+            settings.set_config(priority=ThreadPriority.GUI_OVERRIDE,
+                                source='batch_worker_budget', max_threads=inner_threads)
+        encryptor = FileEncryptor(config_dir=self.encryptor.config_dir, thread_settings=settings)
+        try:
+            result = encryptor.encrypt_file(file_path, output_dir, profile)
+            if not result['success']:
+                raise RuntimeError(result.get('error', '加密失败'))
+        finally:
+            encryptor.hybrid_engine.shutdown()
     
     def _update_progress(self):
         """更新进度显示"""
@@ -258,6 +270,7 @@ class BatchProcessor:
             处理结果
         """
         try:
+            self._validate_parallel(options)
             # 过滤存在的文件
             existing_files = [f for f in file_list if os.path.isfile(f)]
             

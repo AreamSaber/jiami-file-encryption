@@ -39,7 +39,7 @@ from ..utils.config_manager import ConfigManager
 class FileEncryptor:
     """文件加密器主类"""
 
-    def __init__(self, config_dir: Optional[str] = None, max_threads: Optional[int] = None):
+    def __init__(self, config_dir: Optional[str] = None, max_threads: Optional[int] = None, *, thread_settings=None):
         """
         初始化文件加密器
 
@@ -51,7 +51,7 @@ class FileEncryptor:
         self.logger = Logger("FileEncryptor")
 
         # 初始化全局线程管理器
-        self.thread_manager = thread_manager
+        self.thread_manager = thread_settings if thread_settings is not None else thread_manager
 
         # 如果指定了线程数，设置为用户配置
         if max_threads is not None:
@@ -62,7 +62,7 @@ class FileEncryptor:
             )
 
         # 初始化组件
-        self.hybrid_engine = HybridEncryptionEngine()
+        self.hybrid_engine = HybridEncryptionEngine(thread_settings=self.thread_manager)
         self.key_injector = KeyInjector()
         self.file_processor = FileProcessor()
 
