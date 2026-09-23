@@ -60,7 +60,7 @@ This interface calls the shared authenticated reader and never executes a select
 .venv/bin/python -m cli.enhanced_cli batch -d ./documents -o ./encrypted --profile basic --parallel 2
 ```
 
-Use a separate output directory. `--parallel` must be a positive integer and is an upper request, not a promised number of simultaneous workers. Each file has its own engine and thread settings. The effective CPU thread budget caps outer workers and is divided among their inner pools. Outer orchestration threads are additional to that inner budget. All pools are closed after success or failure. A partial batch failure returns a nonzero process status and lists the failed files; successful packages remain available.
+Use a separate output directory. `--parallel` must be a positive integer and is an upper request, not a promised number of simultaneous workers. Each file has its own engine and thread settings. The effective CPU thread budget caps outer workers and is divided among their inner pools. Outer orchestration threads are additional to that inner budget. All pools are closed after success or failure. A partial batch failure returns a nonzero process status and lists the failed files; successful packages remain available. The processed count and progress indicator count all completed attempts, including failures; successful and failed totals are reported separately.
 
 Thread limits do not bound memory. On a small host, start with one batch worker and representative small samples; see [memory measurements](memory-profile.md).
 
@@ -68,7 +68,7 @@ Thread limits do not bound memory. On a small host, start with one batch worker 
 
 All 11 factory profiles use the CPU baseline. `paranoid_gpu` is a retained name, not proof of GPU execution. Missing algorithm dependencies produce explicit errors, not substitute ciphers. RSA profiles retain their existing local recovery-key model. There is no PBKDF2/Argon2 password protection or recipient-key delivery.
 
-v1 rejects legacy pickle artifacts. Migration requires a separate design and tool. The pipeline buffers complete data, and some transforms expand it. The 1 GiB frame/archive limit and 1 MiB JSON-header limit are format bounds, not safe working-memory limits.
+v1 rejects legacy pickle artifacts. Migration requires a separate design and tool. The pipeline buffers complete data, and some transforms expand it. The 1 GiB frame/archive limit and 1 MiB JSON-header limit are format bounds, not safe working-memory limits. The measured `paranoid` topology already rejected a 128 KiB input because its recovery-operation list exceeded the existing 100,000-item bound; see the memory measurements before selecting it for larger inputs.
 
 Publication uses private staging and a no-replace operation. Publication failures may retain private `.jiami-stage-*` directories for diagnosis; they can contain secrets or verified plaintext. Inspect the reported paths and remove only the failed operation's staging directory when no process is using it. There is no automatic overwrite, takeover or cross-filesystem copying. Windows does not promise power-loss durability.
 

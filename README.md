@@ -30,7 +30,7 @@ python3 tools/dev.py setup
 
 **只分享 `data.jmi`。不要打包、上传或发送整个 `.jiami` 目录。** 恢复材料当前不受口令保护。丢失恢复材料就无法恢复；泄露它等同于泄露密钥。
 
-独立恢复程序携带本项目的恢复源码，仍需要 Python 和相应算法依赖。可在仓库之外执行；不是无需运行时的 EXE。Windows EXE 构建接口需在具备 Twofish 原生编译环境及 PyInstaller 的 Windows 上单独验收。
+独立恢复程序携带本项目的恢复源码，仍需要 Python 和相应算法依赖。可在仓库之外执行；不是无需运行时的 EXE。Windows 恢复 EXE 已通过三个真实构建/运行场景；具体范围与尚未验证的主 GUI 打包、原生桌面操作见 [Windows 验收记录](docs/windows-acceptance.md)。
 
 ## 当前支持范围
 
@@ -39,7 +39,7 @@ python3 tools/dev.py setup
 - Twofish 使用 `twofish==0.3.0` 的真实原生实现；Python 3.12 兼容绑定位于 `src/crypto/twofish_backend.py`。Salsa20 配置使用 PyNaCl SecretBox 的具体变体。缺少依赖会明确失败，不替换成其他密码算法。
 - RSA 档位保留，私钥只存在于恢复材料中。本阶段没有收件人公钥投递，也没有 PBKDF2/Argon2 口令加密。
 - 多层和自定义混淆不代表额外安全强度；隐写层不保证密文不可识别。
-- GPU 后端仅保留显式适配接口；旧实验内核不会自动用于 v1。主 Qt 窗口（`main.py --gui`）支持真实文件/目录恢复，并有离屏控件测试；原生桌面交互、GPU 真机和 Windows EXE 仍需单独验收。
+- GPU 后端仅保留显式适配接口；旧实验内核不会自动用于 v1。主 Qt 窗口（`main.py --gui`）支持真实文件/目录恢复，并有离屏控件测试；原生桌面交互、GPU 真机和主 GUI 程序的 EXE 打包仍需单独验收；恢复 EXE 的已验证范围见 Windows 验收记录。
 
 ## 格式和文件保护
 
