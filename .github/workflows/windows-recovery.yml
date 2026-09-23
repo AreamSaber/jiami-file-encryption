@@ -6,6 +6,8 @@ on:
       - 'src/**'
       - 'requirements*'
       - 'tools/verify_windows_recovery.py'
+      - 'tools/verify_windows_console.py'
+      - 'tools/windows_console_probe.py'
       - '.github/workflows/windows-recovery.yml'
   workflow_dispatch:
 
@@ -42,9 +44,14 @@ jobs:
         run: |
           .venv/Scripts/python tools/verify_windows_recovery.py --report acceptance-results/windows-recovery.json
           exit $LASTEXITCODE
+      - name: Verify native console Ctrl+C delivery
+        shell: pwsh
+        run: |
+          .venv/Scripts/python tools/verify_windows_console.py --report acceptance-results/windows-console.json
+          exit $LASTEXITCODE
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: windows-recovery-results
-          path: acceptance-results/windows-recovery.json
+          path: acceptance-results/*.json
           if-no-files-found: warn

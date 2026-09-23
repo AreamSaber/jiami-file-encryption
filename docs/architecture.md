@@ -36,7 +36,7 @@ BatchProcessor 的 FileEncryptor 只作为配置模板。每个文件任务获�
 
 主 Qt 窗口的解密入口直接使用 CPUDecryptor 处理 data.jmi/包目录与 recovery.jmis，不执行恢复脚本。窗口一次只运行一个任务，收到真实 QThread.finished 后才释放引用与恢复操作按钮；关闭期间不会强行终止写入线程。加密、解密均支持协作式取消请求；底层原生调用可能需要先结束，没有流式进度百分比。
 
-Claude 已批准准入实现，取消在独立范围内实现并等待审查。FileEncryptor 的已识别内置档位在正文读取前共用 schema 大小关系与实际拓扑做检查，按档位估算并预留内存；默认实例在进程内共享账本，异常释放前等待内层工作结束。文件夹计入 ZIP 开销并限制成员读取增长。这是软预算，不保证 RSS/OOM 上限；自定义配置、恢复入口和独立 GPU 适配器的范围见 [准入说明](resource-admission.md)。
+Claude 已分别批准准入实现和取消实现（取消审查提交为 e3f5a646）。FileEncryptor 的已识别内置档位在正文读取前共用 schema 大小关系与实际拓扑做检查，按档位估算并预留内存；默认实例在进程内共享账本，异常释放前等待内层工作结束。文件夹计入 ZIP 开销并限制成员读取增长。这是软预算，不保证 RSS/OOM 上限；自定义配置、恢复入口和独立 GPU 适配器的范围见 [准入说明](resource-admission.md)。
 
 取消 token 与发布函数共享 PublicationGate 的锁：取消先到则禁止最终重命名，发布先到则保留发布结果和持久性报告。批处理每个文件一个 token，组控制器停止后续准入并通知活动任务。CLI 在主线程接收 SIGINT，实际操作在工作线程执行，避免信号打断持锁代码或重命名；重复 Ctrl+C 不强杀。详见 [取消契约](resource-cancellation.md)。
 

@@ -355,7 +355,8 @@ def operation():
     return 'done'
 assert run_with_sigint(operation, token) == 'done'
 '''
-    proc = subprocess.run([sys.executable, '-c', script], capture_output=True, text=True, timeout=10)
+    proc = subprocess.run([sys.executable, '-c', script], capture_output=True, text=True,
+                          encoding='utf-8', env={**os.environ, 'PYTHONUTF8': '1'}, timeout=10)
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
@@ -436,6 +437,7 @@ runpy.run_path(sys.argv[0], run_name='__main__')
     output = tmp_path / 'restored'
     proc = subprocess.run([sys.executable, '-c', wrapper, str(package / 'recover.py'),
                            str(package / 'data.jmi'), str(output)], cwd=tmp_path,
-                          capture_output=True, text=True, timeout=30)
+                          capture_output=True, text=True, encoding='utf-8',
+                          env={**os.environ, 'PYTHONUTF8': '1'}, timeout=30)
     assert proc.returncode == 130, proc.stdout + proc.stderr
     assert 'Operation cancelled' in proc.stderr and not output.exists()

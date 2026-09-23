@@ -150,11 +150,11 @@ def test_cli_roundtrip_and_collision_exit_status(tmp_path):
     source = tmp_path/'input.bin'; source.write_bytes(b'CLI synthetic test')
     env = dict(os.environ, PYTHONUTF8='1')
     command = [sys.executable, str(root/'main.py'), '--cli', '-i', str(source), '-o', str(tmp_path/'out'), '-p', 'basic']
-    first = subprocess.run(command, cwd=root, env=env, capture_output=True, text=True, timeout=60)
+    first = subprocess.run(command, cwd=root, env=env, capture_output=True, text=True, encoding='utf-8', timeout=60)
     assert first.returncode == 0, first.stdout + first.stderr
     data = tmp_path/'out/input.bin.jiami/data.jmi'
     original = data.read_bytes()
-    again = subprocess.run(command, cwd=root, env=env, capture_output=True, text=True, timeout=60)
+    again = subprocess.run(command, cwd=root, env=env, capture_output=True, text=True, encoding='utf-8', timeout=60)
     assert again.returncode != 0
     assert data.read_bytes() == original
     assert CPUDecryptor().decrypt_bytes(data)[0] == source.read_bytes()
