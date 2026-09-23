@@ -169,7 +169,7 @@ class HybridEncryptionEngine:
                     __import__('src.crypto.twofish_backend')
                 if layer.get('method') == 'salsa20':
                     __import__('nacl.secret')
-            start_time = time.time()
+            start_time = time.perf_counter()
             data_size = len(data)
             self.logger.info(f"开始混合加密，数据大小: {data_size} 字节")
 
@@ -192,7 +192,7 @@ class HybridEncryptionEngine:
                 result = self._layered_encrypt(data, config)
 
             # 计算耗时
-            duration = time.time() - start_time
+            duration = time.perf_counter() - start_time
             result['duration'] = duration
             result['strategy_used'] = encryption_strategy
 
