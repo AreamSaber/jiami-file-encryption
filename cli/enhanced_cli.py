@@ -15,6 +15,7 @@ from typing import List, Dict, Any
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.encryptor.main import FileEncryptor
+from src.package_format.cancellation import CancellationToken, CancellationGroup, run_with_sigint, exit_code
 from src.utils.logger import Logger
 from src.utils.file_utils import FileUtils
 
@@ -168,7 +169,7 @@ class EnhancedCLI:
         try:
             # 根据命令执行相应操作
             if parsed_args.command == 'encrypt':
-                self._handle_encrypt(parsed_args)
+                return self._handle_encrypt(parsed_args)
             elif parsed_args.command == 'batch':
                 return self._handle_batch(parsed_args)
             elif parsed_args.command == 'config':
@@ -180,9 +181,11 @@ class EnhancedCLI:
                 
         except KeyboardInterrupt:
             print("\n⚠️  操作被用户中断")
+            return 130
         except Exception as e:
             self.logger.error(f"命令执行失败: {e}")
             print(f"❌ 错误: {e}")
+            return 1
             
     def _handle_encrypt(self, args):
         """处理加密命令"""
@@ -191,16 +194,18 @@ class EnhancedCLI:
         # 检查输入路径
         if not os.path.exists(args.input):
             print(f"❌ 错误: 路径不存在 {args.input}")
-            return
+            return 1
         
         # 创建输出目录
         os.makedirs(args.output, exist_ok=True)
         
         # 执行加密
-        if os.path.isfile(args.input):
-            result = self.encryptor.encrypt_file(args.input, args.output, args.profile)
-        else:
-            result = self.encryptor.encrypt_folder(args.input, args.output, args.profile)
+        token = CancellationToken()
+        operation = self.encryptor.encrypt_file if os.path.isfile(args.input) else self.encryptor.encrypt_folder
+        try:
+            result = run_with_sigint(lambda: operation(args.input, args.output, args.profile, cancellation=token), token)
+        finally:
+            self.encryptor.hybrid_engine.shutdown()
         
         # 显示结果
         if result['success']:
@@ -212,9 +217,15 @@ class EnhancedCLI:
                 print(f"⏱️  耗时: {result.get('encryption_time', 0):.2f} 秒")
                 print(f"📊 原始大小: {self.file_utils.format_size(result.get('original_size', 0))}")
                 print(f"📊 加密大小: {self.file_utils.format_size(result.get('encrypted_size', 0))}")
+        elif result.get("cancelled"):
+            print("操作已取消")
         else:
             print(f"❌ 加密失败: {result.get('error', '未知错误')}")
             
+        for detail in result.get("details", []):
+            print(detail)
+        return exit_code(result)
+
     def _handle_batch(self, args):
         """处理批处理命令"""
         from .batch_processor import BatchProcessor
@@ -230,7 +241,12 @@ class EnhancedCLI:
             'profile': args.profile
         }
         
-        result = processor.process_directory(args.directory, args.output, options)
+        group = CancellationGroup()
+        result = run_with_sigint(lambda: processor.process_directory(args.directory, args.output, options, cancellation=group), group)
+        for warning in result.get("warnings", []):
+            print(warning)
+        if result.get('warning'):
+            print(result['warning'])
         
         if result['success']:
             print(f"✅ 批处理完成! 处理了 {result['processed_count']} 个文件")
@@ -239,7 +255,9 @@ class EnhancedCLI:
             print(f"❌ 批处理失败: {result.get('error', '部分文件未能完成')}")
             for error in result.get('errors', []):
                 print(f"   {error}")
-            return 1
+            if result.get('cancelled'):
+                print(f"已取消 {result['cancelled']} 个文件；成功 {result.get('successful', 0)}，失败 {result.get('failed', 0)}")
+            return exit_code(result)
             
     def _handle_config(self, args):
         """处理配置管理命令"""

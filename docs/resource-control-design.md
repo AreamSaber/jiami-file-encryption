@@ -2,9 +2,10 @@
 
 Status: Claude approved the design with refinements after reviewing
 `5701e428a42f537d380a2fb063f995fa678bccd7`. Phase 1 (producer admission and
-reservations) is implemented for a separate review; see [implementation and
-limits](resource-admission.md). Phase 2 (cooperative cancellation) is still a
-design, not implemented. The authenticated v1 format, cipher variants and
+reservations) was approved at `b10b75a45178a624c0d41525c42bca6f59c3a9c1` with
+no blockers; see [implementation and limits](resource-admission.md). Phase 2
+(cooperative cancellation) is implemented in a separate range, pending Claude
+review; see [cancellation contract](resource-cancellation.md). The authenticated v1 format, cipher variants and
 publication contract remain unchanged.
 
 ## Recorded architecture decisions

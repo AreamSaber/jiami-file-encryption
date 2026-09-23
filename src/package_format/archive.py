@@ -7,6 +7,7 @@ import zipfile
 from dataclasses import dataclass
 
 from .schema import safe_name, require
+from .cancellation import checkpoint, iter_checked
 from .envelope import MAX_BODY
 from .publication import write_private
 
@@ -25,11 +26,11 @@ class FolderPlan:
     archive_size: int
 
 
-def plan_folder(folder, exclude_patterns=()):
+def plan_folder(folder, exclude_patterns=(), *, cancellation=None):
     """Stat-only ZIP_STORED plan; no member contents are read."""
     root = Path(folder).resolve()
     entries, size = [], 22  # EOCD, no comment
-    for path in root.rglob('*'):
+    for path in iter_checked(root.rglob('*'), cancellation):
         relative = path.relative_to(root).as_posix()
         if any(fnmatch.fnmatch(relative, pat) for pat in exclude_patterns):
             continue
@@ -63,11 +64,13 @@ class _BoundedArchiveBuffer(io.BytesIO):
         return super().write(data)
 
 
-def pack_folder(folder, exclude_patterns=(), *, plan=None):
-    plan = plan if plan is not None else plan_folder(folder, exclude_patterns)
+def pack_folder(folder, exclude_patterns=(), *, plan=None, cancellation=None):
+    checkpoint(cancellation)
+    plan = plan if plan is not None else plan_folder(folder, exclude_patterns, cancellation=cancellation)
     buffer = _BoundedArchiveBuffer(plan.archive_size)
     with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_STORED) as archive:
         for entry in plan.entries:
+            checkpoint(cancellation)
             require(not entry.path.is_symlink(), 'Folder symlinks are unsupported')
             if entry.directory:
                 require(entry.path.is_dir(), 'Folder changed after admission')
@@ -78,6 +81,7 @@ def pack_folder(folder, exclude_patterns=(), *, plan=None):
                 with entry.path.open('rb') as source, archive.open(info, 'w') as target:
                     count = 0
                     while True:
+                        checkpoint(cancellation)
                         chunk = source.read(min(65536, entry.size - count + 1))
                         if not chunk:
                             break
@@ -86,12 +90,13 @@ def pack_folder(folder, exclude_patterns=(), *, plan=None):
                         target.write(chunk)
                     require(count == entry.size, 'Folder member shrank after admission')
     # Catch added/deleted/resized entries as well as per-member growth while read.
-    require(plan_folder(folder, exclude_patterns) == plan, 'Folder changed after admission')
+    require(plan_folder(folder, exclude_patterns, cancellation=cancellation) == plan, 'Folder changed after admission')
     require(len(buffer.getvalue()) == plan.archive_size, 'Archive size prediction mismatch')
     return buffer.getvalue()
 
 
-def unpack_folder(data, stage):
+def unpack_folder(data, stage, *, cancellation=None):
+    checkpoint(cancellation)
     with zipfile.ZipFile(io.BytesIO(data), 'r') as archive:
         infos = archive.infolist()
         require(len(infos) <= 100000, 'Too many archived files')
@@ -99,6 +104,7 @@ def unpack_folder(data, stage):
         spellings, types = {}, {}
         validated = []
         for info in infos:
+            checkpoint(cancellation)
             require(info.orig_filename == info.filename, 'Archive filename was normalized or truncated')
             name = info.filename.rstrip('/')
             parts = name.split('/')
@@ -122,8 +128,9 @@ def unpack_folder(data, stage):
             require(total <= MAX_BODY, 'Archive exceeds supported size')
             validated.append((info, Path(stage).joinpath(*parts)))
         for info, path in validated:
+            checkpoint(cancellation)
             if info.is_dir():
                 path.mkdir(parents=True, exist_ok=True, mode=0o700)
             else:
                 path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-                write_private(path, archive.read(info))
+                write_private(path, archive.read(info), cancellation=cancellation)

@@ -23,6 +23,7 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from .hybrid_engine import HybridEncryptionEngine
+from src.package_format.cancellation import CancellationToken, OperationCancelled, checkpoint
 from .key_injector import KeyInjector
 from .file_processor import FileProcessor
 from ..thread_pool.thread_manager import thread_manager, ThreadPriority
@@ -206,16 +207,18 @@ class FileEncryptor:
             }
         }
 
-    def encrypt_file(self, file_path, output_dir, profile='standard', custom_config=None):
-        return self._encrypt_path(file_path, output_dir, profile, custom_config, 'file')
+    def encrypt_file(self, file_path, output_dir, profile='standard', custom_config=None, *, cancellation=None):
+        return self._encrypt_path(file_path, output_dir, profile, custom_config, 'file', cancellation=cancellation)
 
-    def encrypt_folder(self, folder_path, output_dir, profile='standard', custom_config=None, exclude_patterns=None):
-        return self._encrypt_path(folder_path, output_dir, profile, custom_config, 'folder', exclude_patterns)
+    def encrypt_folder(self, folder_path, output_dir, profile='standard', custom_config=None, exclude_patterns=None, *, cancellation=None):
+        return self._encrypt_path(folder_path, output_dir, profile, custom_config, 'folder', exclude_patterns, cancellation=cancellation)
 
-    def _encrypt_path(self, input_path, output_dir, profile, custom_config, kind, exclude_patterns=None):
+    def _encrypt_path(self, input_path, output_dir, profile, custom_config, kind, exclude_patterns=None, *, cancellation=None):
         from src.package_format.writer import write_package
+        cancellation = cancellation or CancellationToken()
         original_settings = self.hybrid_engine.thread_manager
         try:
+            checkpoint(cancellation)
             path = Path(input_path)
             if not (path.is_file() if kind == 'file' else path.is_dir()):
                 raise FileNotFoundError(input_path)
@@ -229,7 +232,7 @@ class FileEncryptor:
             folder_plan = None
             if kind == 'folder':
                 from src.package_format.archive import plan_folder
-                folder_plan = plan_folder(path, exclude_patterns or [])
+                folder_plan = plan_folder(path, exclude_patterns or [], cancellation=cancellation)
                 size = folder_plan.archive_size
             else:
                 size = path.stat().st_size
@@ -239,16 +242,16 @@ class FileEncryptor:
                 self.logger.warning(estimate.reason + '; using existing post-hoc validation')
             # Entry metadata has its own allocation cost, beyond archived bytes.
             extra = len(folder_plan.entries) * 4096 if folder_plan is not None else 0
-            with self.resource_ledger.reserve(estimate, extra_bytes=extra):
+            with self.resource_ledger.reserve(estimate, extra_bytes=extra, cancellation=cancellation):
                 if kind == 'file':
-                    data = self.file_processor.read_file(path, expected_size=size if estimate.guaranteed else None)
+                    data = self.file_processor.read_file(path, expected_size=size if estimate.guaranteed else None, cancellation=cancellation)
                 else:
-                    data = self.file_processor.process_folder(path, exclude_patterns or [], plan=folder_plan)
-                encrypted = self.hybrid_engine.encrypt_data(data, config, admission=estimate)
+                    data = self.file_processor.process_folder(path, exclude_patterns or [], plan=folder_plan, cancellation=cancellation)
+                encrypted = self.hybrid_engine.encrypt_data(data, config, admission=estimate, cancellation=cancellation)
                 if estimate.guaranteed and len(encrypted['encrypted_data']) != estimate.output_size:
                     raise ValueError('Produced size differs from admitted plan; output was not published')
                 destination = Path(output_dir) / (path.name + '.jiami')
-                publication = write_package(encrypted, data, destination, profile=profile, original_name=path.name, kind=kind)
+                publication = write_package(encrypted, data, destination, profile=profile, original_name=path.name, kind=kind, cancellation=cancellation)
                 return {'success': True, 'package_dir': str(publication.path),
                         'encrypted_file': str(publication.path/'data.jmi'),
                         'recovery_file': str(publication.path/'recovery.jmis'),
@@ -257,10 +260,10 @@ class FileEncryptor:
                         'compression_ratio': len(encrypted['encrypted_data'])/len(data) if data else 0,
                         'encryption_time': encrypted.get('duration', 0), 'profile_used': profile,
                         'backend_used': 'cpu', 'publication_state': 'published', 'durability': publication.durability,
-                        'warning': publication.warning, 'admission': estimate.summary()}
+                        'warning': '\n'.join(filter(None, (publication.warning, cancellation.completion_warning()))), 'admission': estimate.summary()}
         except Exception as exc:
             self.logger.error('Encryption failed: ' + str(exc))
-            return {'success': False, 'error': str(exc), 'error_code': getattr(exc, 'error_code', 'ENC000'),
+            return {'success': False, 'cancelled': isinstance(exc, OperationCancelled), 'error': str(exc), 'error_code': getattr(exc, 'error_code', 'ENC000'),
                     'file_path': str(input_path), 'details': getattr(exc, '__notes__', [])}
         finally:
             self.hybrid_engine.thread_manager = original_settings

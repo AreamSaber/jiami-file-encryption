@@ -7,6 +7,7 @@ import time
 import psutil
 
 from .admission import MIB
+from src.package_format.cancellation import checkpoint
 
 
 class ResourceRefusal(ValueError):
@@ -46,7 +47,8 @@ class ReservationLedger:
             return self._peak
 
     @contextmanager
-    def reserve(self, estimate, *, extra_bytes=0):
+    def reserve(self, estimate, *, extra_bytes=0, cancellation=None):
+        checkpoint(cancellation)
         estimate.check_format()
         if type(extra_bytes) is not int or extra_bytes < 0:
             raise ValueError('Extra reservation must be a nonnegative integer')
@@ -62,6 +64,7 @@ class ReservationLedger:
         deadline = time.monotonic() + policy.wait_seconds
         with self._condition:
             while True:
+                checkpoint(cancellation)
                 available = self._available_memory()
                 budget_ok = self._reserved + amount <= policy.budget_bytes
                 # Conservatively include outstanding reservations. Existing real
@@ -76,8 +79,9 @@ class ReservationLedger:
                     raise ResourceRefusal(f'Soft admission refused: requested={amount}, reserved={self._reserved}, '
                                           f'budget={policy.budget_bytes}, available={available}, '
                                           f'available_reserve={policy.available_reserve_bytes}')
-                self._condition.wait(timeout=max(0, deadline - time.monotonic()))
+                self._condition.wait(timeout=min(0.1, max(0, deadline - time.monotonic())))
         try:
+            checkpoint(cancellation)
             yield
         finally:
             with self._condition:

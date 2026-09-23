@@ -6,6 +6,7 @@
 
 import sys
 import os
+from src.package_format.cancellation import CancellationToken, OperationCancelled, error_text
 from pathlib import Path
 
 # 尝试导入GUI库
@@ -51,9 +52,11 @@ class EncryptionWorker(QThread):
     status = pyqtSignal(str)
     succeeded = pyqtSignal(dict)
     error = pyqtSignal(str)
+    cancelled = pyqtSignal(str)
 
     def __init__(self, input_path, output_path, profile, threading_config=None, gpu_config=None):
         super().__init__()
+        self.cancel_token = CancellationToken()
         self.input_path = input_path
         self.output_path = output_path
         self.profile = profile
@@ -113,12 +116,15 @@ class EncryptionWorker(QThread):
                 self.progress.emit(30)
 
                 if os.path.isfile(self.input_path):
-                    result = self.encryptor.encrypt_file(self.input_path, self.output_path, self.profile)
+                    result = self.encryptor.encrypt_file(self.input_path, self.output_path, self.profile, cancellation=self.cancel_token)
                 else:
-                    result = self.encryptor.encrypt_folder(self.input_path, self.output_path, self.profile)
+                    result = self.encryptor.encrypt_folder(self.input_path, self.output_path, self.profile, cancellation=self.cancel_token)
 
+                if result.get('cancelled'):
+                    self.cancelled.emit('\n'.join([result['error'], *result.get('details', [])]))
+                    return
                 if not result['success']:
-                    self.error.emit(result['error'])
+                    self.error.emit('\n'.join([result['error'], *result.get('details', [])]))
                     return
                 self.progress.emit(90)
                 self.status.emit("加密完成")
@@ -136,9 +142,11 @@ class DecryptionWorker(QThread):
     """Use the authenticated shared reader; never execute a recovery script."""
     succeeded = pyqtSignal(dict)
     failed = pyqtSignal(str)
+    cancelled = pyqtSignal(str)
 
     def __init__(self, data_path, recovery_path, output_path, parent=None):
         super().__init__(parent)
+        self.cancel_token = CancellationToken()
         self.data_path = data_path
         self.recovery_path = recovery_path or None
         self.output_path = output_path
@@ -147,11 +155,13 @@ class DecryptionWorker(QThread):
         try:
             from src.decryptor.cpu_decryptor import CPUDecryptor
             reader = CPUDecryptor(recovery_path=self.recovery_path)
-            destination = reader.decrypt_file(self.data_path, self.output_path)
+            destination = reader.decrypt_file(self.data_path, self.output_path, cancellation=self.cancel_token)
             self.succeeded.emit({'output_path': destination,
-                                 'warning': reader.last_publication.warning})
+                                 'warning': '\n'.join(filter(None, (reader.last_publication.warning, self.cancel_token.completion_warning())))})
+        except OperationCancelled as exc:
+            self.cancelled.emit(error_text(exc))
         except Exception as exc:
-            self.failed.emit(str(exc))
+            self.failed.emit(error_text(exc))
 
 
 class MainWindow(QMainWindow):
@@ -350,6 +360,10 @@ class MainWindow(QMainWindow):
 
         button_layout.addStretch()
         button_layout.addWidget(self.encrypt_btn)
+        self.cancel_encrypt_btn = QPushButton("取消加密")
+        self.cancel_encrypt_btn.setEnabled(False)
+        self.cancel_encrypt_btn.clicked.connect(self.request_encryption_cancel)
+        button_layout.addWidget(self.cancel_encrypt_btn)
         layout.addLayout(button_layout)
 
         # 进度区域
@@ -427,9 +441,13 @@ class MainWindow(QMainWindow):
         self.decryption_status = QLabel("就绪")
         self.decryption_status.setWordWrap(True)
         layout.addWidget(self.decrypt_btn)
+        self.cancel_decrypt_btn = QPushButton("取消解密")
+        self.cancel_decrypt_btn.setEnabled(False)
+        self.cancel_decrypt_btn.clicked.connect(self.request_decryption_cancel)
+        layout.addWidget(self.cancel_decrypt_btn)
         layout.addWidget(self.decryption_progress)
         layout.addWidget(self.decryption_status)
-        note = QLabel("处理期间请等待完成；当前版本不支持安全中止。")
+        note = QLabel("可请求取消；底层计算可能需要先结束。进入最终发布后，取消请求将显示为过晚。")
         note.setWordWrap(True)
         layout.addWidget(note)
         self.select_cipher_btn.clicked.connect(self.browse_ciphertext)
@@ -691,11 +709,14 @@ CPU核心数: {self.cpu_count}
         self.progress_bar.setValue(0)
 
         # 启动工作线程
+        self._encryption_cancel_pending = False
+        self.cancel_encrypt_btn.setEnabled(True)
         self.worker = EncryptionWorker(input_path, output_path, profile, threading_config, gpu_config)
         self.worker.progress.connect(self.progress_bar.setValue)
-        self.worker.status.connect(self.status_label.setText)
+        self.worker.status.connect(self._encryption_status)
         self.worker.succeeded.connect(self.encryption_finished)
         self.worker.error.connect(self.encryption_error)
+        self.worker.cancelled.connect(self.encryption_cancelled)
         # Restore controls only after QThread has really stopped.
         self.worker.finished.connect(self._encryption_stopped)
         self.worker.start()
@@ -703,14 +724,20 @@ CPU核心数: {self.cpu_count}
     def _encryption_stopped(self):
         worker = self.worker
         self.worker = None
+        self.cancel_encrypt_btn.setEnabled(False)
         self.encrypt_btn.setEnabled(True)
         self.decrypt_btn.setEnabled(True)
         worker.deleteLater()
 
     def encryption_finished(self, result):
         """加密完成"""
+        self.cancel_encrypt_btn.setEnabled(False)
 
         if result['success']:
+            late = self.worker.cancel_token.completion_warning() if self.worker else ''
+            if late and late not in result.get('warning', ''):
+                result['warning'] = '\n'.join(filter(None, (result.get('warning'), late)))
+            self.status_label.setText('加密完成' + ('；取消请求过晚，输出已完成。' if late else ''))
             # 基础信息
             message = (f"加密完成！\n\n"
                       f"加密文件: {result['encrypted_file']}\n"
@@ -745,8 +772,41 @@ CPU核心数: {self.cpu_count}
         else:
             QMessageBox.critical(self, "错误", f"加密失败: {result['error']}")
 
+    def _encryption_status(self, message):
+        if not self._encryption_cancel_pending:
+            self.status_label.setText(message)
+
+    def request_encryption_cancel(self):
+        if self.worker is None:
+            return
+        accepted = self.worker.cancel_token.request_cancel()
+        self._encryption_cancel_pending = True
+        self.cancel_encrypt_btn.setEnabled(False)
+        self.status_label.setText("取消请求处理中，请等待工作线程结束…" if accepted else "已进入发布，取消请求过晚；等待最终结果…")
+
+    def encryption_cancelled(self, message):
+        self.cancel_encrypt_btn.setEnabled(False)
+        self.progress_bar.setValue(0)
+        self.status_label.setText("已取消加密：" + message)
+        self.log_message(message)
+
+    def request_decryption_cancel(self):
+        if self.decryption_worker is None:
+            return
+        accepted = self.decryption_worker.cancel_token.request_cancel()
+        self.cancel_decrypt_btn.setEnabled(False)
+        self.decryption_status.setText("取消请求处理中，请等待工作线程结束…" if accepted else "已进入发布，取消请求过晚；等待最终结果…")
+
+    def decryption_cancelled(self, message):
+        self.cancel_decrypt_btn.setEnabled(False)
+        self.decryption_progress.setRange(0, 100)
+        self.decryption_progress.setValue(0)
+        self.decryption_status.setText("已取消解密：" + message)
+
     def encryption_error(self, error_msg):
         """加密错误"""
+        self.cancel_encrypt_btn.setEnabled(False)
+        self.status_label.setText("加密失败：" + error_msg)
         QMessageBox.critical(self, "错误", f"加密过程中发生错误: {error_msg}")
 
     def _operation_running(self):
@@ -806,13 +866,19 @@ CPU核心数: {self.cpu_count}
         self._set_decryption_busy(True)
         self.decryption_progress.setRange(0, 0)
         self.decryption_status.setText("正在验证并还原，请等待完成…")
+        self.cancel_decrypt_btn.setEnabled(True)
         self.decryption_worker = DecryptionWorker(source, recovery, output, self)
         self.decryption_worker.succeeded.connect(self.decryption_succeeded)
         self.decryption_worker.failed.connect(self.decryption_failed)
+        self.decryption_worker.cancelled.connect(self.decryption_cancelled)
         self.decryption_worker.finished.connect(self._decryption_stopped)
         self.decryption_worker.start()
 
     def decryption_succeeded(self, result):
+        self.cancel_decrypt_btn.setEnabled(False)
+        late = self.decryption_worker.cancel_token.completion_warning() if self.decryption_worker else ''
+        if late and late not in result.get('warning', ''):
+            result['warning'] = '\n'.join(filter(None, (result.get('warning'), late)))
         self.decryption_progress.setRange(0, 100)
         self.decryption_progress.setValue(100)
         message = "还原完成：" + result['output_path']
@@ -821,6 +887,7 @@ CPU核心数: {self.cpu_count}
         self.decryption_status.setText(message)
 
     def decryption_failed(self, message):
+        self.cancel_decrypt_btn.setEnabled(False)
         self.decryption_progress.setRange(0, 100)
         self.decryption_progress.setValue(0)
         self.decryption_status.setText("解密失败：" + message)
@@ -829,6 +896,7 @@ CPU核心数: {self.cpu_count}
     def _decryption_stopped(self):
         worker = self.decryption_worker
         self.decryption_worker = None
+        self.cancel_decrypt_btn.setEnabled(False)
         self._set_decryption_busy(False)
         worker.deleteLater()
 

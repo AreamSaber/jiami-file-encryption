@@ -5,6 +5,7 @@
 管理所有加密/解密算法的注册和获取
 """
 
+from src.package_format.cancellation import iter_checked
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, Type
 import sys
@@ -374,7 +375,7 @@ class SimpleXORHandler(AlgorithmHandler):
         key = params['key']
         result = bytearray(len(data))
         key_len = len(key)
-        for i, byte in enumerate(data):
+        for i, byte in enumerate(iter_checked(data)):
             result[i] = byte ^ key[i % key_len]
         return bytes(result)
 
@@ -392,12 +393,12 @@ class BitShuffleHandler(AlgorithmHandler):
 
     def decrypt(self, data: bytes, params: Dict[str, Any]) -> bytes:
         if 'bit_positions' in params:
-            return bytes(sum(((b >> pos) & 1) << i for i, pos in enumerate(params['bit_positions'])) for b in data)
+            return bytes(sum(((b >> pos) & 1) << i for i, pos in enumerate(params['bit_positions'])) for b in iter_checked(data))
         key = params['key']
         seed = sum(key) % 256
         result = bytearray(len(data))
 
-        for i, byte in enumerate(data):
+        for i, byte in enumerate(iter_checked(data)):
             shift = (seed + i) % 8
             result[i] = ((byte >> shift) | (byte << (8 - shift))) & 0xFF
 
@@ -417,12 +418,12 @@ class RotateCipherHandler(AlgorithmHandler):
 
     def decrypt(self, data: bytes, params: Dict[str, Any]) -> bytes:
         if 'rotation' in params:
-            return bytes((b - params['rotation']) % 256 for b in data)
+            return bytes((b - params['rotation']) % 256 for b in iter_checked(data))
         key = params['key']
         result = bytearray(len(data))
         key_len = len(key)
 
-        for i, byte in enumerate(data):
+        for i, byte in enumerate(iter_checked(data)):
             rotation = key[i % key_len] % 8
             result[i] = ((byte >> rotation) | (byte << (8 - rotation))) & 0xFF
 
@@ -446,7 +447,7 @@ class MatrixCipherHandler(AlgorithmHandler):
             n = params['matrix_size']
             positions = [row.index(1) for row in matrix]
             restored = bytes(data[start + positions[j]]
-                             for start in range(0, len(data), n) for j in range(n))
+                             for start in iter_checked(range(0, len(data), n)) for j in range(n))
             return restored[:params['original_length']]
         key = params['key']
 
@@ -461,7 +462,7 @@ class MatrixCipherHandler(AlgorithmHandler):
         result = bytearray(len(data))
         key_len = len(key)
 
-        for i, byte in enumerate(data):
+        for i, byte in enumerate(iter_checked(data)):
             k = key[i % key_len]
             result[i] = (byte - k) & 0xFF
 
@@ -472,7 +473,7 @@ class MatrixCipherHandler(AlgorithmHandler):
         result = bytearray(len(data))
         key_len = len(key)
 
-        for i, byte in enumerate(data):
+        for i, byte in enumerate(iter_checked(data)):
             k = key[i % key_len]
             result[i] = (byte - k) & 0xFF
 
@@ -493,9 +494,9 @@ class PreScrambleHandler(AlgorithmHandler):
     def decrypt(self, data, params):
         if 'operations' not in params:
             key = params['key']
-            return bytes(b ^ key[i % len(key)] for i, b in enumerate(data))
+            return bytes(b ^ key[i % len(key)] for i, b in enumerate(iter_checked(data)))
         result = bytearray(data)
-        for operation in reversed(params['operations']):
+        for operation in iter_checked(reversed(params['operations'])):
             name, *args = operation
             if name == 'swap':
                 a, b = args
@@ -507,7 +508,7 @@ class PreScrambleHandler(AlgorithmHandler):
                 shift = args[0]
                 result = result[-shift:] + result[:-shift]
             elif name == 'xor':
-                result = bytearray(b ^ args[0] for b in result)
+                result = bytearray(b ^ args[0] for b in iter_checked(result))
             else:
                 raise ValueError('Unknown pre-scramble operation')
         return bytes(result)
@@ -528,24 +529,24 @@ class FinalObfuscationHandler(AlgorithmHandler):
         import hashlib
         if 'applied_operations' not in params:
             key = params['key']
-            return bytes(b ^ key[i % len(key)] for i, b in enumerate(data))
+            return bytes(b ^ key[i % len(key)] for i, b in enumerate(iter_checked(data)))
         result = bytearray(data)
         digest = hashlib.sha256(params['obfuscation_key']).digest()
-        for name, arg in reversed(params['applied_operations']):
+        for name, arg in iter_checked(reversed(params['applied_operations'])):
             if name == 'frequency_analysis_resistance':
-                for pos in arg:
+                for pos in iter_checked(arg):
                     result.pop(pos)
             elif name == 'byte_substitution':
                 inverse = [0] * 256
                 for i, value in enumerate(arg):
                     inverse[value] = i
-                result = bytearray(inverse[b] for b in result)
+                result = bytearray(inverse[b] for b in iter_checked(result))
             elif name == 'bit_permutation':
-                result = bytearray(sum(((b >> ((i * 3 + arg) % 8)) & 1) << i for i in range(8)) for b in result)
+                result = bytearray(sum(((b >> ((i * 3 + arg) % 8)) & 1) << i for i in range(8)) for b in iter_checked(result))
             elif name == 'block_cipher':
-                result = bytearray((((b >> 1) | (b << 7)) & 255) ^ arg for b in result)
+                result = bytearray((((b >> 1) | (b << 7)) & 255) ^ arg for b in iter_checked(result))
             elif name == 'entropy_increase':
-                result = bytearray(((b - digest[i % 32]) % 256) ^ digest[i % 32] for i, b in enumerate(result))
+                result = bytearray(((b - digest[i % 32]) % 256) ^ digest[i % 32] for i, b in enumerate(iter_checked(result)))
             else:
                 raise ValueError('Unknown obfuscation operation')
         return bytes(result)
@@ -566,7 +567,7 @@ class TwofishHandler(AlgorithmHandler):
         from src.crypto.twofish_backend import Twofish
         from cryptography.hazmat.primitives import padding
         cipher = Twofish(params['key'])
-        padded = b''.join(cipher.decrypt(data[i:i+16]) for i in range(0, len(data), 16))
+        padded = b''.join(cipher.decrypt(data[i:i+16]) for i in iter_checked(range(0, len(data), 16)))
         unpadder = padding.PKCS7(128).unpadder()
         return unpadder.update(padded) + unpadder.finalize()
 
@@ -591,4 +592,4 @@ class SteganographyHandler(AlgorithmHandler):
 
     def decrypt(self, data, params):
         return bytes(sum((data[i+j] & 1) << (7-j) for j in range(8))
-                     for i in range(0, len(data), 8))
+                     for i in iter_checked(range(0, len(data), 8)))

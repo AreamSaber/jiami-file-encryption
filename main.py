@@ -111,6 +111,7 @@ def check_dependencies():
 
 def run_cli_mode(args):
     """Publish an authenticated v1 package and report failures to shell callers."""
+    from src.package_format.cancellation import CancellationToken, run_with_sigint, exit_code
     encryptor = None
     try:
         encryptor = FileEncryptor()
@@ -122,17 +123,16 @@ def run_cli_mode(args):
             raise ValueError('Please specify --input')
         source = Path(args.input)
         output = args.output or './encrypted_output'
-        if source.is_file():
-            result = encryptor.encrypt_file(source, output, args.profile)
-        elif source.is_dir():
-            result = encryptor.encrypt_folder(source, output, args.profile)
-        else:
+        if not source.is_file() and not source.is_dir():
             raise FileNotFoundError(source)
+        token = CancellationToken()
+        operation = encryptor.encrypt_file if source.is_file() else encryptor.encrypt_folder
+        result = run_with_sigint(lambda: operation(source, output, args.profile, cancellation=token), token)
         if not result['success']:
-            print('Encryption failed: ' + result['error'], file=sys.stderr)
+            print(('Cancelled: ' if result.get('cancelled') else 'Encryption failed: ') + result['error'], file=sys.stderr)
             for detail in result.get('details', []):
                 print(detail, file=sys.stderr)
-            return 1
+            return exit_code(result)
         print('Encrypted data: ' + result['encrypted_file'])
         print('Private recovery program: ' + result['decryptor_file'])
         print('Share only data.jmi; recovery.jmis and recover.py contain keys.')

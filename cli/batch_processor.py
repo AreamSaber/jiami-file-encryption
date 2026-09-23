@@ -17,6 +17,7 @@ from typing import List, Dict, Any, Optional
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.encryptor.main import FileEncryptor
+from src.package_format.cancellation import CancellationGroup, OperationCancelled
 from src.utils.logger import Logger
 from src.utils.file_utils import FileUtils
 from src.thread_pool.thread_manager import thread_manager, ThreadPriority
@@ -36,8 +37,9 @@ class BatchProcessor:
         self.progress_lock = threading.Lock()
         self.processed_count = 0
         self.total_count = 0
+        self.cancellation = CancellationGroup()
         
-    def process_directory(self, input_dir: str, output_dir: str, options: Dict[str, Any]) -> Dict[str, Any]:
+    def process_directory(self, input_dir: str, output_dir: str, options: Dict[str, Any], *, cancellation=None) -> Dict[str, Any]:
         """
         批量处理目录中的文件
         
@@ -50,6 +52,7 @@ class BatchProcessor:
             处理结果
         """
         try:
+            self.cancellation = cancellation or CancellationGroup()
             self._validate_parallel(options)
             self.logger.info(f"开始批量处理: {input_dir}")
             
@@ -165,12 +168,19 @@ class BatchProcessor:
         """顺序处理文件"""
         successful = 0
         failed = 0
+        cancelled = 0
+        warnings = []
         errors = []
         
         for file_path in files:
             try:
-                self._process_single_file(file_path, output_dir, options)
+                outcome = self._process_single_file(file_path, output_dir, options)
+                if outcome.get("warning"):
+                    warnings.append(outcome["warning"])
                 successful += 1
+            except OperationCancelled as exc:
+                cancelled += 1
+                warnings.extend(getattr(exc, "__notes__", []))
             except Exception as e:
                 failed += 1
                 error_msg = f"{file_path}: {str(e)}"
@@ -180,7 +190,9 @@ class BatchProcessor:
                 self._update_progress()
         
         return {
-            'success': failed == 0,
+            'success': failed == 0 and cancelled == 0,
+            'cancelled': cancelled,
+            'warnings': warnings,
             'successful': successful,
             'failed': failed,
             'errors': errors
@@ -193,6 +205,8 @@ class BatchProcessor:
         inner_threads = max(1, budget // max_workers)
         successful = 0
         failed = 0
+        cancelled = 0
+        warnings = []
         errors = []
         
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -206,8 +220,13 @@ class BatchProcessor:
             for future in as_completed(future_to_file):
                 file_path = future_to_file[future]
                 try:
-                    future.result()
+                    outcome = future.result()
+                    if outcome.get("warning"):
+                        warnings.append(outcome["warning"])
                     successful += 1
+                except OperationCancelled as exc:
+                    cancelled += 1
+                    warnings.extend(getattr(exc, "__notes__", []))
                 except Exception as e:
                     failed += 1
                     error_msg = f"{file_path}: {str(e)}"
@@ -217,7 +236,9 @@ class BatchProcessor:
                     self._update_progress()
         
         return {
-            'success': failed == 0,
+            'success': failed == 0 and cancelled == 0,
+            'cancelled': cancelled,
+            'warnings': warnings,
             'successful': successful,
             'failed': failed,
             'errors': errors
@@ -230,22 +251,32 @@ class BatchProcessor:
             raise ValueError('parallel must be a positive integer')
 
     def _process_single_file(self, file_path: str, output_dir: str, options: Dict[str, Any], inner_threads=None):
-        """处理单个文件"""
-        profile = options.get('profile', 'standard')
-        
-        settings = self.encryptor.thread_manager.snapshot()
-        if inner_threads is not None:
-            settings.set_config(priority=ThreadPriority.GUI_OVERRIDE,
-                                source='batch_worker_budget', max_threads=inner_threads)
-        encryptor = FileEncryptor(config_dir=self.encryptor.config_dir, thread_settings=settings,
-                                  resource_ledger=self.resource_ledger)
-        try:
-            result = encryptor.encrypt_file(file_path, output_dir, profile)
-            if not result['success']:
-                raise RuntimeError(result.get('error', '加密失败'))
-        finally:
-            encryptor.hybrid_engine.shutdown()
-    
+        # Queued futures may resolve as cancelled, but never allocate/read/start
+        # a new cipher once the group has accepted cancellation.
+        with self.cancellation.operation() as token:
+            settings = self.encryptor.thread_manager.snapshot()
+            if inner_threads is not None:
+                settings.set_config(priority=ThreadPriority.GUI_OVERRIDE,
+                                    source='batch_worker_budget', max_threads=inner_threads)
+            encryptor = FileEncryptor(config_dir=self.encryptor.config_dir, thread_settings=settings,
+                                      resource_ledger=self.resource_ledger)
+            try:
+                result = encryptor.encrypt_file(file_path, output_dir, options.get('profile', 'standard'), cancellation=token)
+                if result.get('cancelled'):
+                    exc = OperationCancelled(result['error'])
+                    exc.__notes__ = result.get('details', [])
+                    raise exc
+                if not result['success']:
+                    raise RuntimeError('\n'.join([result.get('error', 'Encryption failed'), *result.get('details', [])]))
+            finally:
+                encryptor.hybrid_engine.shutdown()
+        # Unregister before reading the final late-request flag; cancellation
+        # cannot reach this token again once the operation context has closed.
+        late = token.completion_warning()
+        if late and late not in result.get('warning', ''):
+            result['warning'] = '\n'.join(filter(None, (result.get('warning'), late)))
+        return result
+
     def _update_progress(self):
         """Count completed attempts, including failures; outcomes stay separate."""
         with self.progress_lock:
@@ -262,7 +293,7 @@ class BatchProcessor:
             if self.processed_count == self.total_count:
                 print()  # 换行
     
-    def process_file_list(self, file_list: List[str], output_dir: str, options: Dict[str, Any]) -> Dict[str, Any]:
+    def process_file_list(self, file_list: List[str], output_dir: str, options: Dict[str, Any], *, cancellation=None) -> Dict[str, Any]:
         """
         处理指定的文件列表
         
@@ -275,6 +306,7 @@ class BatchProcessor:
             处理结果
         """
         try:
+            self.cancellation = cancellation or CancellationGroup()
             self._validate_parallel(options)
             # 过滤存在的文件
             existing_files = [f for f in file_list if os.path.isfile(f)]

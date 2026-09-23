@@ -10,6 +10,7 @@ import json
 import threading
 import multiprocessing
 import copy
+from src.package_format.cancellation import checkpoint, iter_checked, cancellation_scope, OperationCancelled
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 from typing import Dict, List, Any, Optional, Callable
 from datetime import datetime
@@ -45,6 +46,8 @@ class HybridEncryptionEngine:
             )
 
         self.thread_pool = None
+        self._cancellation = None
+        self._pending_futures = []
 
         # 支持的加密方法
         self.encryption_methods = {
@@ -175,7 +178,7 @@ class HybridEncryptionEngine:
                       if count > 1 and data_size > self.thread_manager.get_parallel_threshold() else None)
         return count, chunk_size
 
-    def encrypt_data(self, data: bytes, config: Dict, progress_callback=None, *, admission=None) -> Dict:
+    def encrypt_data(self, data: bytes, config: Dict, progress_callback=None, *, admission=None, cancellation=None) -> Dict:
         """
         使用混合加密配置加密数据
 
@@ -187,7 +190,10 @@ class HybridEncryptionEngine:
         Returns:
             包含加密结果的字典
         """
+        previous = self._cancellation
+        self._cancellation = cancellation
         try:
+            checkpoint(cancellation)
             # Direct engine callers also receive deterministic format preflight.
             estimate = admission if admission is not None else self.estimate_admission(len(data), config)
             estimate.check_format()
@@ -233,8 +239,16 @@ class HybridEncryptionEngine:
             # Running cipher futures must finish before the caller releases its
             # allocation reservation. Never force-terminate an inner worker.
             self.shutdown()
+            if isinstance(e, OperationCancelled):
+                for future in self._pending_futures:
+                    failure = future.exception()
+                    if failure is not None and not isinstance(failure, OperationCancelled):
+                        raise failure
             self.logger.error(f"混合加密失败: {e}")
             raise
+        finally:
+            self._cancellation = previous
+            self._pending_futures = []
 
     def _choose_encryption_strategy(self, data: bytes, config: Dict) -> str:
         """
@@ -295,6 +309,7 @@ class HybridEncryptionEngine:
 
         # 逐层加密
         for i, layer in enumerate(layers):
+            checkpoint(self._cancellation)
             method = layer.get('method')
             if method not in self.encryption_methods:
                 raise ValueError(f"不支持的加密方法: {method}")
@@ -363,10 +378,13 @@ class HybridEncryptionEngine:
         try:
             # 提交任务
             future_to_index = {}
+            self._pending_futures = []
             for index, chunk in chunks:
+                checkpoint(self._cancellation)
                 future = self.thread_pool.submit(
                     self._encrypt_chunk_safe, chunk, layer, method
                 )
+                self._pending_futures.append(future)
                 future_to_index[future] = index
 
             # 收集结果
@@ -406,6 +424,7 @@ class HybridEncryptionEngine:
                 raise ValueError("多线程加密数据完整性验证失败")
 
             self.logger.debug(f"多线程加密完成: {actual_chunks} 个数据块, 总大小: {len(result_data)} 字节")
+            self._pending_futures = []
             return bytes(result_data), combined_metadata
 
         except Exception as e:
@@ -419,7 +438,8 @@ class HybridEncryptionEngine:
             options['seed'] = int.from_bytes(os.urandom(8), 'big')
         if options.get('rotation') == 'random':
             options['rotation'] = os.urandom(1)[0]
-        encrypted, metadata = self.encryption_methods[method](data, options)
+        with cancellation_scope(self._cancellation):
+            encrypted, metadata = self.encryption_methods[method](data, options)
         metadata.update(method=method, input_size=len(data), output_size=len(encrypted))
         return bytes(encrypted), metadata
 
@@ -452,6 +472,7 @@ class HybridEncryptionEngine:
 
         # 逐层加密
         for i, layer in enumerate(layers):
+            checkpoint(self._cancellation)
             method = layer.get('method')
             if method not in self.encryption_methods:
                 raise ValueError(f"不支持的加密方法: {method}")
@@ -502,11 +523,14 @@ class HybridEncryptionEngine:
         try:
             # 提交任务
             future_to_index = {}
+            self._pending_futures = []
             for i, chunk in chunks:
+                checkpoint(self._cancellation)
                 layer = layers[i % len(layers)]  # 循环使用层配置
                 future = self.thread_pool.submit(
                     self._encrypt_chunk_with_layer, chunk, layer, i
                 )
+                self._pending_futures.append(future)
                 future_to_index[future] = i
 
             # 收集结果
@@ -817,7 +841,7 @@ class HybridEncryptionEngine:
 
             # 分块加密
             encrypted_data = bytearray()
-            for i in range(0, len(padded_data), 16):
+            for i in iter_checked(range(0, len(padded_data), 16)):
                 block = padded_data[i:i+16]
                 encrypted_block = tf.encrypt(block)
                 encrypted_data.extend(encrypted_block)
@@ -1006,9 +1030,9 @@ class HybridEncryptionEngine:
 
         # 简单的LSB隐写
         hidden_data = bytearray(cover_data)
-        data_bits = ''.join(format(byte, '08b') for byte in data)
+        data_bits = ''.join(format(byte, '08b') for byte in iter_checked(data))
 
-        for i, bit in enumerate(data_bits):
+        for i, bit in enumerate(iter_checked(data_bits)):
             if i < len(hidden_data):
                 hidden_data[i] = (hidden_data[i] & 0xFE) | int(bit)
 
@@ -1025,7 +1049,7 @@ class HybridEncryptionEngine:
         import os
 
         key = os.urandom(len(data))
-        encrypted_data = bytes(a ^ b for a, b in zip(data, key))
+        encrypted_data = bytes(a ^ b for a, b in iter_checked(zip(data, key)))
 
         metadata = {
             'algorithm': 'Simple_XOR',
@@ -1046,7 +1070,7 @@ class HybridEncryptionEngine:
         random.shuffle(bit_positions)
 
         encrypted_data = bytearray()
-        for byte in data:
+        for byte in iter_checked(data):
             new_byte = 0
             for i, pos in enumerate(bit_positions):
                 if byte & (1 << i):
@@ -1066,7 +1090,7 @@ class HybridEncryptionEngine:
         rotation = config.get('rotation', 13)
 
         encrypted_data = bytearray()
-        for byte in data:
+        for byte in iter_checked(data):
             rotated = (byte + rotation) % 256
             encrypted_data.append(rotated)
 
@@ -1152,7 +1176,7 @@ class HybridEncryptionEngine:
 
         encrypted_data = bytearray()
 
-        for i in range(0, len(padded_data), block_size):
+        for i in iter_checked(range(0, len(padded_data), block_size)):
             block = padded_data[i:i+block_size]
             matrix = [list(block[j:j+matrix_size]) for j in range(0, len(block), matrix_size)]
             transformed_matrix = self._apply_matrix_transform(matrix, transform_matrix)
@@ -1186,7 +1210,7 @@ class HybridEncryptionEngine:
         scrambled_data = bytearray(data)
         scramble_operations = []
 
-        for round_num in range(scramble_rounds):
+        for round_num in iter_checked(range(scramble_rounds)):
             operation = random.choice(['swap', 'reverse', 'rotate', 'xor'])
 
             if operation == 'swap':
@@ -1215,7 +1239,7 @@ class HybridEncryptionEngine:
             elif operation == 'xor':
                 # XOR混淆
                 xor_key = random.randint(1, 255)
-                for i in range(len(scrambled_data)):
+                for i in iter_checked(range(len(scrambled_data))):
                     scrambled_data[i] ^= xor_key
                 scramble_operations.append(('xor', xor_key))
 
@@ -1262,20 +1286,20 @@ class HybridEncryptionEngine:
         non_size_changing_ops = ['byte_substitution', 'bit_permutation', 'block_cipher', 'entropy_increase']
         
         # 先执行不改变大小的操作
-        for i in range(operations_count - 1):
+        for i in iter_checked(range(operations_count - 1)):
             operation = random.choice(non_size_changing_ops)
 
             if operation == 'byte_substitution':
                 # 字节替换
                 substitution_table = list(range(256))
                 random.shuffle(substitution_table)
-                for j in range(len(obfuscated_data)):
+                for j in iter_checked(range(len(obfuscated_data))):
                     obfuscated_data[j] = substitution_table[obfuscated_data[j]]
                 applied_operations.append(('byte_substitution', substitution_table))
 
             elif operation == 'bit_permutation':
                 # 位排列
-                for j in range(len(obfuscated_data)):
+                for j in iter_checked(range(len(obfuscated_data))):
                     byte_val = obfuscated_data[j]
                     # 重新排列位
                     new_byte = 0
@@ -1290,7 +1314,7 @@ class HybridEncryptionEngine:
                 # 简单分组密码
                 block_size = 16
                 round_key = key_hash[i % len(key_hash)]
-                for j in range(0, len(obfuscated_data), block_size):
+                for j in iter_checked(range(0, len(obfuscated_data), block_size)):
                     block_end = min(j + block_size, len(obfuscated_data))
                     for k in range(j, block_end):
                         obfuscated_data[k] ^= round_key
@@ -1299,7 +1323,7 @@ class HybridEncryptionEngine:
 
             elif operation == 'entropy_increase':
                 # 增加熵
-                for j in range(len(obfuscated_data)):
+                for j in iter_checked(range(len(obfuscated_data))):
                     entropy_factor = key_hash[j % len(key_hash)]
                     obfuscated_data[j] ^= entropy_factor
                     obfuscated_data[j] = (obfuscated_data[j] + entropy_factor) % 256
@@ -1312,7 +1336,7 @@ class HybridEncryptionEngine:
             dummy_bytes = os.urandom(insertions)
             if len(dummy_bytes) > 0 and len(dummy_bytes) <= len(obfuscated_data):
                 insertion_positions = sorted(random.sample(range(len(obfuscated_data)), len(dummy_bytes)))
-                for pos, dummy_byte in zip(reversed(insertion_positions), reversed(dummy_bytes)):
+                for pos, dummy_byte in iter_checked(zip(reversed(insertion_positions), reversed(dummy_bytes))):
                     obfuscated_data.insert(pos, dummy_byte)
                 applied_operations.append(('frequency_analysis_resistance', insertion_positions))
 

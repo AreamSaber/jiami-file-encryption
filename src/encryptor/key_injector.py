@@ -36,6 +36,7 @@ class KeyInjector:
 Requires cryptography, PyNaCl, and twofish for applicable profiles.
 """
 import argparse, base64, pathlib, sys, tempfile
+import concurrent.futures, signal, threading, contextvars
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -47,14 +48,21 @@ def main():
         runtime.write_bytes(base64.b64decode(RUNTIME))
         sys.path.insert(0, str(runtime))
         from src.decryptor.cpu_decryptor import CPUDecryptor
+        from src.package_format.cancellation import CancellationToken, OperationCancelled, run_with_sigint, error_text
         decryptor = CPUDecryptor(recovery_bytes=base64.b64decode(RECOVERY))
+        token = CancellationToken()
         try:
-            path = decryptor.decrypt_file(args.input, args.output)
+            path = run_with_sigint(lambda: decryptor.decrypt_file(args.input, args.output, cancellation=token), token)
             print(path)
+            if token.completion_warning():
+                print(token.completion_warning(), file=sys.stderr)
             if decryptor.last_publication.warning:
                 print(decryptor.last_publication.warning, file=sys.stderr)
+        except OperationCancelled as exc:
+            print(error_text(exc), file=sys.stderr)
+            return 130
         except Exception as exc:
-            print('Recovery failed: ' + str(exc), file=sys.stderr)
+            print('Recovery failed: ' + error_text(exc), file=sys.stderr)
             return 1
     return 0
 

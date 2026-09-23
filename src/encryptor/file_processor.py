@@ -1,12 +1,14 @@
 """File and data-only folder handling; pickle is never accepted."""
 from pathlib import Path
+from src.package_format.cancellation import checkpoint
 from src.package_format.archive import pack_folder, unpack_folder
 from src.package_format.envelope import MAX_BODY
 from src.package_format.publication import make_stage, publish_directory
 
 
 class FileProcessor:
-    def read_file(self, file_path, *, expected_size=None):
+    def read_file(self, file_path, *, expected_size=None, cancellation=None):
+        checkpoint(cancellation)
         path = Path(file_path)
         size = path.stat().st_size
         if size > MAX_BODY:
@@ -15,13 +17,23 @@ class FileProcessor:
             raise ValueError('Input changed after admission')
         limit = MAX_BODY if expected_size is None else min(MAX_BODY, expected_size)
         with path.open('rb') as stream:
-            data = stream.read(limit + 1)
+            chunks, count = [], 0
+            while True:
+                checkpoint(cancellation)
+                chunk = stream.read(min(65536, limit - count + 1))
+                count += len(chunk)
+                if count > limit:
+                    raise ValueError('Input changed or exceeded the admitted size')
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            data = b''.join(chunks)
         if len(data) > limit or (expected_size is not None and len(data) != expected_size):
             raise ValueError('Input changed or exceeded the admitted size')
         return data
 
-    def process_folder(self, folder_path, exclude_patterns=None, *, plan=None):
-        return pack_folder(folder_path, exclude_patterns or [], plan=plan)
+    def process_folder(self, folder_path, exclude_patterns=None, *, plan=None, cancellation=None):
+        return pack_folder(folder_path, exclude_patterns or [], plan=plan, cancellation=cancellation)
 
     def load_encrypted_data(self, file_path, recovery_path=None):
         from src.decryptor.base_decryptor import load_package

@@ -34,8 +34,10 @@ v1 默认 CPU 路径；AES GCM/CBC/CTR、ChaCha20、PyNaCl SecretBox、Blowfish�
 
 BatchProcessor 的 FileEncryptor 只作为配置模板。每个文件任务获得独立的线程配置快照与加密器，在 finally 中关闭自己的线程池。外层任务数受请求值、文件数和有效线程预算共同限制；每个内层池分配预算的整数份额。外层调度线程不包含在内层预算中；这不是内存上限。其他入口仍保留全局线程管理器的兼容默认行为。
 
-主 Qt 窗口的解密入口直接使用 CPUDecryptor 处理 data.jmi/包目录与 recovery.jmis，不执行恢复脚本。窗口一次只运行一个任务，收到真实 QThread.finished 后才释放引用与恢复操作按钮；关闭期间不会强行终止写入线程。当前没有安全取消或流式进度百分比。
+主 Qt 窗口的解密入口直接使用 CPUDecryptor 处理 data.jmi/包目录与 recovery.jmis，不执行恢复脚本。窗口一次只运行一个任务，收到真实 QThread.finished 后才释放引用与恢复操作按钮；关闭期间不会强行终止写入线程。加密、解密均支持协作式取消请求；底层原生调用可能需要先结束，没有流式进度百分比。
 
-Claude 已批准先实现准入、后实现取消。FileEncryptor 的已识别内置档位在正文读取前共用 schema 大小关系与实际拓扑做检查，按档位估算并预留内存；默认实例在进程内共享账本，异常释放前等待内层工作结束。文件夹计入 ZIP 开销并限制成员读取增长。这是软预算，不保证 RSS/OOM 上限；自定义配置、恢复入口和独立 GPU 适配器的范围见 [准入说明](resource-admission.md)。取消机制尚未实现。
+Claude 已批准准入实现，取消在独立范围内实现并等待审查。FileEncryptor 的已识别内置档位在正文读取前共用 schema 大小关系与实际拓扑做检查，按档位估算并预留内存；默认实例在进程内共享账本，异常释放前等待内层工作结束。文件夹计入 ZIP 开销并限制成员读取增长。这是软预算，不保证 RSS/OOM 上限；自定义配置、恢复入口和独立 GPU 适配器的范围见 [准入说明](resource-admission.md)。
+
+取消 token 与发布函数共享 PublicationGate 的锁：取消先到则禁止最终重命名，发布先到则保留发布结果和持久性报告。批处理每个文件一个 token，组控制器停止后续准入并通知活动任务。CLI 在主线程接收 SIGINT，实际操作在工作线程执行，避免信号打断持锁代码或重命名；重复 Ctrl+C 不强杀。详见 [取消契约](resource-cancellation.md)。
 
 旧的 LargeFileProcessor、MemoryManager、ProgressTracker、InterruptController 和未使用的临时文件辅助方法已移除。它们没有接入 v1 发布流程，不能作为流式大文件支持依据。实际测量见 [内存记录](memory-profile.md)。
