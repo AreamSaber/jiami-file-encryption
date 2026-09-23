@@ -1,8 +1,11 @@
 # Windows native console event acceptance
 
 This is a separate acceptance range following Claude's approval of Phase 2 at
-`e3f5a646f345d0ca3960b2be2a9e52577ea4271e`. No application source, cipher,
-protocol, cancellation policy or dependency is changed.
+`e3f5a646f345d0ca3960b2be2a9e52577ea4271e`. The first supported Windows
+Python 3.12 run exposed deferred signal handling while the main thread waited
+indefinitely on a Future. The CLI wrapper now waits in bounded 100 ms intervals,
+returning to Python to handle signals while work is active. The worker, gate,
+cancellation policy, ciphers, protocol and dependencies are unchanged.
 
 Run in the supported Windows Python 3.12.4+ virtual environment with the native
 dependencies and PyInstaller installed:
@@ -57,6 +60,14 @@ the destination bytes. Recovery cases additionally prove their cancellation
 module was imported from the generated `runtime.zip`, outside the source tree.
 
 ## Instrumentation and limits
+
+Python only added interruptible Windows lock acquisition in 3.14; see the
+[Python threading reference](https://docs.python.org/3/library/threading.html#threading.Lock.acquire).
+The supplementary 3.14 run therefore did not establish that the supported 3.12
+wait was responsive. The original 3.12 failure is retained as evidence; its
+assertions were not relaxed. Timed `concurrent.futures.wait` allows the original
+signal handler to execute, rather than injecting a wakeup from the probe. Task
+exceptions still propagate from `future.result()` after completion.
 
 `windows_console_probe.py` is solely an acceptance tool. It observes the existing
 token and signal handler and holds the existing gate; it replaces no cipher,
