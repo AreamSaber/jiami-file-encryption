@@ -50,14 +50,18 @@ def check_dependencies():
         'cryptography': 'cryptography'
     }
 
+    # 按加密配置必需；缺失时允许使用不含对应算法的配置
+    profile_packages = {
+        'nacl.secret': ('PyNaCl', 'salsa20_stream 及所有含 salsa20 的配置')
+    }
+
     # 可选依赖包
     optional_packages = {
-        'Crypto': 'pycryptodome',
-        'nacl': 'PyNaCl',
         'PIL': 'Pillow'
     }
 
     missing_core = []
+    missing_profile = []
     missing_optional = []
 
     # 检查核心依赖
@@ -66,6 +70,12 @@ def check_dependencies():
             __import__(import_name)
         except ImportError:
             missing_core.append(display_name)
+
+    for import_name, (display_name, profiles) in profile_packages.items():
+        try:
+            __import__(import_name)
+        except ImportError:
+            missing_profile.append((display_name, profiles))
 
     # 检查可选依赖
     for import_name, display_name in optional_packages.items():
@@ -82,79 +92,59 @@ def check_dependencies():
         print("\n请运行: pip install cryptography")
         return False
 
+    if missing_profile:
+        print("⚠️  缺少配置必需依赖:")
+        for package, profiles in missing_profile:
+            print(f"   - {package}: {profiles} 不可用")
+        print("请安装: pip install " + " ".join(p for p, _ in missing_profile))
+        print("仅继续使用依赖齐全的配置；不会替换加密算法。\n")
+
     # 如果缺少可选依赖，只显示警告
     if missing_optional:
         print("⚠️  缺少可选依赖包（部分功能可能不可用）:")
         for package in missing_optional:
             print(f"   - {package}")
-        print("\n可选安装: pip install pycryptodome PyNaCl Pillow")
-        print("✅ 核心功能可用，继续运行...\n")
+        print("\n可选安装: pip install " + " ".join(missing_optional))
 
     return True
 
 
 def run_cli_mode(args):
-    """运行命令行模式"""
-    logger = Logger("Main")
-    logger.info("启动命令行模式")
-
+    """Publish an authenticated v1 package and report failures to shell callers."""
+    encryptor = None
     try:
-        # 创建加密器
         encryptor = FileEncryptor()
-
-        # 处理不同的命令
         if args.list_profiles:
-            print("📋 可用的加密配置文件:")
-            profiles = encryptor.list_profiles()
-            for profile in profiles:
-                info = encryptor.get_profile_info(profile)
-                print(f"   {profile}: {info.get('name', '无名称')} - {info.get('description', '无描述')}")
-            return
-
+            for name in encryptor.list_profiles():
+                print(name)
+            return 0
         if not args.input:
-            print("❌ 错误: 请指定要加密的文件或文件夹路径")
-            print("使用方法: python main.py --cli -i <输入文件> -o <输出目录>")
-            return
-
-        if not args.output:
-            # 如果没有指定输出目录，使用默认值
-            args.output = "./encrypted_output"
-            print(f"⚠️  未指定输出目录，使用默认目录: {args.output}")
-
-        # 确保输出目录存在
-        os.makedirs(args.output, exist_ok=True)
-
-        # 执行加密
-        print(f"🔒 开始加密: {args.input}")
-        print(f"📁 输出目录: {args.output}")
-        print(f"⚙️  使用配置: {args.profile}")
-
-        if os.path.isfile(args.input):
-            result = encryptor.encrypt_file(args.input, args.output, args.profile)
-        elif os.path.isdir(args.input):
-            result = encryptor.encrypt_folder(args.input, args.output, args.profile)
+            raise ValueError('Please specify --input')
+        source = Path(args.input)
+        output = args.output or './encrypted_output'
+        if source.is_file():
+            result = encryptor.encrypt_file(source, output, args.profile)
+        elif source.is_dir():
+            result = encryptor.encrypt_folder(source, output, args.profile)
         else:
-            print(f"❌ 错误: 路径不存在 {args.input}")
-            return
-
-        # 显示结果
-        if result['success']:
-            print("\n🎉 加密完成!")
-            print(f"📄 加密文件: {result['encrypted_file']}")
-            print(f"🔑 解密器: {result['decryptor_file']}")
-            print(f"📊 原始大小: {result['original_size']:,} 字节")
-            print(f"📊 加密大小: {result['encrypted_size']:,} 字节")
-            print(f"📊 压缩比: {result['compression_ratio']:.2%}")
-            print(f"⏱️  耗时: {result['encryption_time']:.2f} 秒")
-
-            if 'file_count' in result:
-                print(f"📁 文件数量: {result['file_count']}")
-        else:
-            print(f"\n❌ 加密失败: {result['error']}")
-
-    except Exception as e:
-        logger.error(f"命令行模式运行失败: {e}")
-        print(f"❌ 运行失败: {e}")
+            raise FileNotFoundError(source)
+        if not result['success']:
+            print('Encryption failed: ' + result['error'], file=sys.stderr)
+            for detail in result.get('details', []):
+                print(detail, file=sys.stderr)
+            return 1
+        print('Encrypted data: ' + result['encrypted_file'])
+        print('Private recovery program: ' + result['decryptor_file'])
+        print('Share only data.jmi; recovery.jmis and recover.py contain keys.')
+        if result['warning']:
+            print(result['warning'], file=sys.stderr)
+        return 0
+    except Exception as exc:
+        print('Encryption failed: ' + str(exc), file=sys.stderr)
+        return 1
+    finally:
+        if encryptor is not None:
+            encryptor.hybrid_engine.shutdown()
 
 
 def run_gui_mode():
@@ -568,11 +558,7 @@ def main():
   # 测试模式 - 文件兼容性测试
   python main.py --test --test-compatibility
 
-分离式加密引擎特性:
-  🖥️ 纯CPU引擎 - 使用CPU专用算法，完美兼容性
-  🚀 纯GPU引擎 - 使用GPU专用算法，极致性能
-  🔧 专用解密器 - 每种引擎生成对应的专用解密器
-  🎯 完美兼容 - 解决高级加密配置的兼容性问题
+v1 使用 CPU 基线与共享恢复实现；GPU 真机及 Windows EXE 需单独验收。
         """
     )
 
@@ -616,11 +602,11 @@ def main():
         run_gui_mode()
     elif args.cli:
         # 命令行模式
-        run_cli_mode(args)
+        return run_cli_mode(args)
     elif args.test:
         # 测试模式
         run_test_mode(args)
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -25,6 +25,13 @@ class DecryptionError(EncryptionSystemError):
         super().__init__(message, error_code, context)
 
 
+class IntegrityVerificationError(DecryptionError):
+    """A structurally valid package failed authentication or plaintext integrity."""
+
+    def __init__(self, message='Package authentication failed', context=None):
+        super().__init__(message, 'DEC006', context)
+
+
 class InvalidMetadataError(DecryptionError):
     """
     无效元数据错误

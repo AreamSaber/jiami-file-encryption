@@ -17,6 +17,7 @@ from .decryption_errors import (
     InvalidMetadataError,
     CorruptedDataError,
     KeyMismatchError,
+    IntegrityVerificationError,
 )
 from .config_errors import (
     ConfigurationError,
@@ -39,6 +40,7 @@ __all__ = [
     'InvalidMetadataError',
     'CorruptedDataError',
     'KeyMismatchError',
+    'IntegrityVerificationError',
     # 配置错误
     'ConfigurationError',
     'SchemaValidationError',

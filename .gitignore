@@ -40,6 +40,12 @@ tests/test_output/
 *.encrypted
 *_decryptor.py
 *_decryptor.exe
+*.jiami/
+*.jmi
+*.jmis
+recover.py
+.jiami-stage-*/
+.jiami-build-*/
 
 # AI / agent tooling
 .ace-tool/

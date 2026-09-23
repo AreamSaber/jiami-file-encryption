@@ -33,7 +33,7 @@ class TestGPUFallbackConsistency:
     """
 
     @given(data=binary_data)
-    @settings(max_examples=10)  # 减少次数因为涉及文件IO
+    @settings(max_examples=10, deadline=None)  # Real fsync latency is not a cipher correctness property.
     def test_cpu_fallback_produces_decryptable_output(self, data: bytes):
         """
         Feature: tech-debt-refactor, Property 2: GPU降级一致性
@@ -42,7 +42,6 @@ class TestGPUFallbackConsistency:
         CPU降级加密应该产生可解密的输出
         """
         import tempfile
-        import pickle
         
         # 创建临时文件
         with tempfile.NamedTemporaryFile(delete=False, suffix='.bin') as f:
@@ -64,18 +63,13 @@ class TestGPUFallbackConsistency:
                 # 加密
                 result = encryptor.encrypt_file(temp_file, output_dir, 'basic')
                 
-                if result.get('success'):
-                    # 验证加密文件存在
-                    assert os.path.exists(result['encrypted_file']), "加密文件应该存在"
-                    
-                    # 读取加密包
-                    with open(result['encrypted_file'], 'rb') as f:
-                        encrypted_package = pickle.load(f)
-                    
-                    # 验证加密包结构
-                    assert 'encrypted_data' in encrypted_package, "应该包含加密数据"
-                    assert 'metadata' in encrypted_package or len(encrypted_package) > 0
-                    
+                assert result['success'], result
+                from src.decryptor.cpu_decryptor import CPUDecryptor
+                recovered, metadata = CPUDecryptor().decrypt_bytes(result['encrypted_file'])
+                assert recovered == data
+                assert metadata['original_size'] == len(data)
+                encryptor.hybrid_engine.shutdown()
+
         finally:
             # 清理临时文件
             try:
@@ -119,7 +113,8 @@ class TestPerformanceMetricsCompleteness:
             with tempfile.TemporaryDirectory() as output_dir:
                 result = encryptor.encrypt_file(temp_file, output_dir, 'basic')
                 
-                if result.get('success'):
+                assert result['success'], result
+                if result['success']:
                     # 验证包含加密时间
                     assert 'encryption_time' in result, "结果应该包含encryption_time"
                     assert result['encryption_time'] >= 0, "加密时间应该非负"
@@ -163,7 +158,9 @@ class TestPerformanceMetricsCompleteness:
             with tempfile.TemporaryDirectory() as output_dir:
                 result = encryptor.encrypt_file(temp_file, output_dir, 'basic')
                 
-                if result.get('success') and result.get('encryption_time', 0) > 0:
+                assert result['success'], result
+                assert result['encryption_time'] > 0
+                if result['encryption_time'] > 0:
                     # 计算速度
                     speed = result['original_size'] / result['encryption_time']
                     assert speed > 0, "速度应该大于0"

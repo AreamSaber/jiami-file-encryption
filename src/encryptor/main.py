@@ -200,212 +200,44 @@ class FileEncryptor:
             }
         }
 
-    def encrypt_file(self,
-                    file_path: str,
-                    output_dir: str,
-                    profile: str = "standard",
-                    custom_config: Optional[Dict] = None) -> Dict:
-        """
-        加密单个文件
+    def encrypt_file(self, file_path, output_dir, profile='standard', custom_config=None):
+        return self._encrypt_path(file_path, output_dir, profile, custom_config, 'file')
 
-        Args:
-            file_path: 要加密的文件路径
-            output_dir: 输出目录
-            profile: 加密配置文件名
-            custom_config: 自定义配置
+    def encrypt_folder(self, folder_path, output_dir, profile='standard', custom_config=None, exclude_patterns=None):
+        return self._encrypt_path(folder_path, output_dir, profile, custom_config, 'folder', exclude_patterns)
 
-        Returns:
-            包含加密结果的字典
-        """
+    def _encrypt_path(self, input_path, output_dir, profile, custom_config, kind, exclude_patterns=None):
+        from src.package_format.writer import write_package
         try:
-            self.logger.info(f"开始加密文件: {file_path}")
-
-            # 验证输入
-            if not os.path.exists(file_path):
-                raise EncryptionError(
-                    f"文件不存在: {file_path}",
-                    error_code="ENC002",
-                    context={'file_path': file_path, 'operation': 'encrypt_file'}
-                )
-
-            if not os.path.isfile(file_path):
-                raise EncryptionError(
-                    f"路径不是文件: {file_path}",
-                    error_code="ENC003",
-                    context={'file_path': file_path, 'operation': 'encrypt_file'}
-                )
-
-            # 创建输出目录
-            os.makedirs(output_dir, exist_ok=True)
-
-            # 获取加密配置
+            path = Path(input_path)
+            if not (path.is_file() if kind == 'file' else path.is_dir()):
+                raise FileNotFoundError(input_path)
+            if kind == 'folder' and Path(output_dir).resolve().is_relative_to(path.resolve()):
+                raise ValueError('Output must be outside the input folder')
             config = custom_config or self._get_encryption_config(profile)
-
-            # 处理文件
-            file_data = self.file_processor.read_file(file_path)
-
-            # 执行加密
-            encryption_result = self.hybrid_engine.encrypt_data(file_data, config)
-
-            # 生成输出文件名
-            base_name = Path(file_path).stem
-            encrypted_file = os.path.join(output_dir, f"{base_name}.encrypted")
-            decryptor_file = os.path.join(output_dir, f"{base_name}_decryptor.exe")
-
-            # 保存加密数据 - 传递original_size用于解密时截断
-            original_size = len(file_data)
-            self.file_processor.save_encrypted_data(encryption_result, encrypted_file, original_size)
-
-            # 确保metadata中包含original_size用于解密器
-            metadata_with_size = encryption_result['metadata'].copy()
-            metadata_with_size['original_size'] = original_size
-            
-            # 生成解密器
-            self.key_injector.create_executable_decryptor(
-                metadata_with_size,
-                decryptor_file
-            )
-
-            result = {
-                'success': True,
-                'encrypted_file': encrypted_file,
-                'decryptor_file': decryptor_file,
-                'original_size': original_size,
-                'encrypted_size': len(encryption_result['encrypted_data']),
-                'compression_ratio': len(encryption_result['encrypted_data']) / len(file_data),
-                'encryption_time': encryption_result.get('duration', 0),
-                'profile_used': profile
-            }
-
-            self.logger.info(f"文件加密完成: {encrypted_file}")
-            return result
-
-        except EncryptionError as e:
-            self.logger.error(f"文件加密失败: {e.format_message()}", extra={'context': e.context})
-            return {
-                'success': False,
-                'error': str(e),
-                'error_code': e.error_code,
-                'file_path': file_path
-            }
-        except Exception as e:
-            self.logger.error(f"文件加密失败: {e}")
-            return {
-                'success': False,
-                'error': str(e),
-                'error_code': 'ENC000',
-                'file_path': file_path
-            }
-
-    def encrypt_folder(self,
-                      folder_path: str,
-                      output_dir: str,
-                      profile: str = "standard",
-                      custom_config: Optional[Dict] = None,
-                      exclude_patterns: Optional[List[str]] = None) -> Dict:
-        """
-        加密文件夹
-
-        Args:
-            folder_path: 要加密的文件夹路径
-            output_dir: 输出目录
-            profile: 加密配置文件名
-            custom_config: 自定义配置
-            exclude_patterns: 排除的文件模式
-
-        Returns:
-            包含加密结果的字典
-        """
-        try:
-            self.logger.info(f"开始加密文件夹: {folder_path}")
-
-            # 验证输入
-            if not os.path.exists(folder_path):
-                raise EncryptionError(
-                    f"文件夹不存在: {folder_path}",
-                    error_code="ENC002",
-                    context={'folder_path': folder_path, 'operation': 'encrypt_folder'}
-                )
-
-            if not os.path.isdir(folder_path):
-                raise EncryptionError(
-                    f"路径不是文件夹: {folder_path}",
-                    error_code="ENC004",
-                    context={'folder_path': folder_path, 'operation': 'encrypt_folder'}
-                )
-
-            # 创建输出目录
-            os.makedirs(output_dir, exist_ok=True)
-
-            # 获取加密配置
-            config = custom_config or self._get_encryption_config(profile)
-
-            # 处理文件夹
-            folder_data = self.file_processor.process_folder(
-                folder_path,
-                exclude_patterns or []
-            )
-
-            # 执行加密
-            encryption_result = self.hybrid_engine.encrypt_data(folder_data, config)
-
-            # 生成输出文件名
-            folder_name = Path(folder_path).name
-            encrypted_file = os.path.join(output_dir, f"{folder_name}.encrypted")
-            decryptor_file = os.path.join(output_dir, f"{folder_name}_decryptor.exe")
-
-            # 保存加密数据 - 传递original_size用于解密时截断
-            original_size = len(folder_data)
-            self.file_processor.save_encrypted_data(encryption_result, encrypted_file, original_size)
-
-            # 确保metadata中包含original_size用于解密器
-            metadata_with_size = encryption_result['metadata'].copy()
-            metadata_with_size['original_size'] = original_size
-            
-            # 生成解密器
-            self.key_injector.create_executable_decryptor(
-                metadata_with_size,
-                decryptor_file
-            )
-
-            result = {
-                'success': True,
-                'encrypted_file': encrypted_file,
-                'decryptor_file': decryptor_file,
-                'original_size': original_size,
-                'encrypted_size': len(encryption_result['encrypted_data']),
-                'compression_ratio': len(encryption_result['encrypted_data']) / len(folder_data),
-                'encryption_time': encryption_result.get('duration', 0),
-                'file_count': encryption_result.get('file_count', 0),
-                'profile_used': profile
-            }
-
-            self.logger.info(f"文件夹加密完成: {encrypted_file}")
-            return result
-
-        except EncryptionError as e:
-            self.logger.error(f"文件夹加密失败: {e.format_message()}", extra={'context': e.context})
-            return {
-                'success': False,
-                'error': str(e),
-                'error_code': e.error_code,
-                'folder_path': folder_path
-            }
-        except Exception as e:
-            self.logger.error(f"文件夹加密失败: {e}")
-            return {
-                'success': False,
-                'error': str(e),
-                'error_code': 'ENC000',
-                'folder_path': folder_path
-            }
+            data = self.file_processor.read_file(path) if kind == 'file' else self.file_processor.process_folder(path, exclude_patterns or [])
+            encrypted = self.hybrid_engine.encrypt_data(data, config)
+            destination = Path(output_dir) / (path.name + '.jiami')
+            publication = write_package(encrypted, data, destination, profile=profile, original_name=path.name, kind=kind)
+            return {'success': True, 'package_dir': str(publication.path),
+                    'encrypted_file': str(publication.path/'data.jmi'),
+                    'recovery_file': str(publication.path/'recovery.jmis'),
+                    'decryptor_file': str(publication.path/'recover.py'),
+                    'original_size': len(data), 'encrypted_size': len(encrypted['encrypted_data']),
+                    'compression_ratio': len(encrypted['encrypted_data'])/len(data) if data else 0,
+                    'encryption_time': encrypted.get('duration', 0), 'profile_used': profile,
+                    'backend_used': 'cpu', 'publication_state': 'published', 'durability': publication.durability,
+                    'warning': publication.warning}
+        except Exception as exc:
+            self.logger.error('Encryption failed: ' + str(exc))
+            return {'success': False, 'error': str(exc), 'error_code': getattr(exc, 'error_code', 'ENC000'),
+                    'file_path': str(input_path), 'details': getattr(exc, '__notes__', [])}
 
     def _get_encryption_config(self, profile: str) -> Dict:
         """获取加密配置"""
         profiles = self.encryption_profiles.get("encryption_profiles", {})
         if profile not in profiles:
-            self.logger.warning(f"未找到配置文件 {profile}，使用默认配置")
-            profile = "basic"
+            raise ValueError("Unknown encryption profile: " + profile)
 
         config = profiles.get(profile, profiles.get("basic", {}))
 

@@ -64,12 +64,14 @@ def check_dependencies():
         'psutil': '系统信息',
     }
     
+    profile_packages = {
+        'nacl.secret': ('PyNaCl', 'salsa20_stream 及所有含 salsa20 的配置')
+    }
+
     optional_packages = {
-        'pycryptodome': '扩展加密算法',
-        'PyNaCl': 'NaCl加密库',
-        'Pillow': '图像处理',
-        'PyQt6': 'GUI界面',
-        'PySide6': 'GUI界面（备选）'
+        'PIL': ('Pillow', '图像处理'),
+        'PyQt6': ('PyQt6', 'GUI界面'),
+        'PySide6': ('PySide6', 'GUI界面（备选）')
     }
     
     all_good = True
@@ -83,10 +85,21 @@ def check_dependencies():
             print(f"    ❌ {package}: {description} (未安装)")
             all_good = False
     
-    print("  可选包:")
-    for package, description in optional_packages.items():
+    print("  按配置必需包:")
+    for import_name, (package, profiles) in profile_packages.items():
         try:
-            __import__(package)
+            __import__(import_name)
+            print(f"    ✅ {package}: {profiles} 所需依赖已安装")
+        except ImportError:
+            print(f"    ❌ {package}: {profiles} 不可用")
+            print(f"    💡 安装命令: pip install {package}")
+            print("    其他配置仅在其依赖齐全时可用；不会替换加密算法。")
+            all_good = False
+
+    print("  可选包:")
+    for import_name, (package, description) in optional_packages.items():
+        try:
+            __import__(import_name)
             print(f"    ✅ {package}: {description}")
         except ImportError:
             print(f"    ⚠️  {package}: {description} (未安装)")

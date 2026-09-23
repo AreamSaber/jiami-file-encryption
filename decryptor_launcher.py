@@ -7,7 +7,6 @@
 
 import os
 import sys
-import pickle
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
@@ -25,395 +24,21 @@ except ImportError:
     pass
 
 
-class UniversalDecryptor:
-    """通用解密器 - 支持所有加密类型"""
+from src.decryptor.hybrid_decryptor_gui import HybridDecryptor
 
-    def __init__(self):
-        self.log_callback = None
 
-    def set_log_callback(self, callback):
-        self.log_callback = callback
-
-    def log(self, message: str):
-        if self.log_callback:
-            self.log_callback(message)
-        else:
-            print(message)
-
-    def detect_encryption_type(self, file_path: str) -> Dict[str, Any]:
-        """检测加密文件类型"""
+class UniversalDecryptor(HybridDecryptor):
+    """The launcher never deserializes legacy executable object formats."""
+    def detect_encryption_type(self, file_path):
+        from src.decryptor.base_decryptor import load_package
         try:
-            with open(file_path, 'rb') as f:
-                package = pickle.load(f)
-
-            metadata = package.get('metadata', {})
-            engine_type = metadata.get('engine_type', '')
-            enc_type = metadata.get('type', '')
-
-            info = {
-                'engine_type': engine_type or enc_type or 'unknown',
-                'security_level': metadata.get('security_level', 'unknown'),
-                'layers': len(metadata.get('layers', [])),
-                'gpu_only': metadata.get('gpu_only', False),
-                'encrypted_size': len(package.get('encrypted_data', b'')),
-                'metadata': metadata
-            }
-
-            # 判断具体类型
-            if 'pure_gpu' in engine_type or info['gpu_only']:
-                info['type'] = 'GPU'
-            elif 'pure_cpu' in engine_type:
-                info['type'] = 'CPU'
-            else:
-                info['type'] = 'Hybrid'
-
-            return info
-
-        except Exception as e:
-            return {'error': str(e), 'type': 'unknown'}
-
-    def decrypt_file(self, file_path: str, output_dir: str = None) -> Dict[str, Any]:
-        """解密文件"""
-        result = {
-            'success': False,
-            'output_file': None,
-            'error': None
-        }
-
-        try:
-            self.log(f"🔓 开始解密: {os.path.basename(file_path)}")
-
-            # 读取加密包
-            with open(file_path, 'rb') as f:
-                package = pickle.load(f)
-
-            metadata = package.get('metadata', {})
-            encrypted_data = package.get('encrypted_data', b'')
-            layers = metadata.get('layers', [])
-
-            self.log(f"📋 加密层数: {len(layers)}")
-            self.log(f"📋 数据大小: {len(encrypted_data):,} 字节")
-
-            # 逐层解密
-            decrypted_data = encrypted_data
-            for i, layer in enumerate(reversed(layers)):
-                layer_idx = len(layers) - i
-                algorithm = layer.get('algorithm', 'unknown')
-                self.log(f"🔓 解密第 {layer_idx} 层: {algorithm}")
-
-                try:
-                    decrypted_data = self._decrypt_layer(decrypted_data, layer)
-                    self.log(f"   ✅ 成功")
-                except Exception as e:
-                    self.log(f"   ❌ 失败: {e}")
-                    raise
-
-            # 保存解密文件
-            if output_dir is None:
-                output_dir = os.path.dirname(file_path)
-
-            output_file = self._generate_output_path(file_path, output_dir)
-
-            with open(output_file, 'wb') as f:
-                f.write(decrypted_data)
-
-            self.log(f"✅ 解密完成: {os.path.basename(output_file)}")
-            self.log(f"📁 输出大小: {len(decrypted_data):,} 字节")
-
-            result['success'] = True
-            result['output_file'] = output_file
-            result['decrypted_size'] = len(decrypted_data)
-
-        except Exception as e:
-            self.log(f"❌ 解密失败: {e}")
-            result['error'] = str(e)
-
-        return result
-
-    def _decrypt_layer(self, data: bytes, layer: Dict) -> bytes:
-        """解密单层"""
-        algorithm = layer.get('algorithm', '').lower().replace('-', '_').replace(' ', '_')
-
-        if 'aes' in algorithm:
-            return self._decrypt_aes(data, layer)
-        elif 'chacha20' in algorithm:
-            return self._decrypt_chacha20(data, layer)
-        elif 'salsa20' in algorithm:
-            return self._decrypt_salsa20(data, layer)
-        elif 'blowfish' in algorithm:
-            return self._decrypt_blowfish(data, layer)
-        elif 'matrix' in algorithm:
-            return self._decrypt_matrix(data, layer)
-        elif 'rsa' in algorithm:
-            return self._decrypt_rsa(data, layer)
-        else:
-            self.log(f"   ⚠️ 未知算法: {algorithm}")
-            return data
-
-    def _decrypt_aes(self, data: bytes, layer: Dict) -> bytes:
-        """AES解密"""
-        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-        from cryptography.hazmat.primitives import padding
-
-        key = layer.get('key')
-        iv = layer.get('iv')
-        mode_name = layer.get('mode', 'CBC')
-        tag = layer.get('tag')
-
-        if mode_name == 'GCM' and tag:
-            cipher = Cipher(algorithms.AES(key), modes.GCM(iv, tag))
-            decryptor = cipher.decryptor()
-            return decryptor.update(data) + decryptor.finalize()
-        else:
-            if len(iv) != 16:
-                iv = iv[:16] if len(iv) > 16 else iv + b'\x00' * (16 - len(iv))
-            cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
-            decryptor = cipher.decryptor()
-            padded = decryptor.update(data) + decryptor.finalize()
-            unpadder = padding.PKCS7(128).unpadder()
-            return unpadder.update(padded) + unpadder.finalize()
-
-    def _decrypt_chacha20(self, data: bytes, layer: Dict) -> bytes:
-        """ChaCha20解密"""
-        key = layer.get('key')
-        nonce = layer.get('nonce')
-
-        # 检查是否是GPU自定义实现
-        if layer.get('gpu_only', False) or 'GPU' in layer.get('backend_info', ''):
-            return self._decrypt_chacha20_gpu(data, key, nonce)
-
-        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
-        cipher = Cipher(algorithms.ChaCha20(key, nonce), mode=None)
-        decryptor = cipher.decryptor()
-        return decryptor.update(data) + decryptor.finalize()
-
-    def _decrypt_chacha20_gpu(self, data: bytes, key: bytes, nonce: bytes) -> bytes:
-        """GPU ChaCha20解密 - 纯Python实现"""
-        result = bytearray(len(data))
-
-        for i in range(len(data)):
-            kb = key[i % 32]
-            nb = nonce[i % 16]
-            ks = kb ^ nb
-            ks ^= (i & 0xFF)
-            ks = ((ks << 3) | (ks >> 5)) & 0xFF
-            ks ^= ((i >> 8) & 0xFF)
-            for _ in range(20):
-                ks = (ks + kb) & 0xFF
-                ks ^= ((ks << 1) & 0xFF)
-                ks = (ks + nb) & 0xFF
-                ks ^= ((ks >> 1) & 0xFF)
-            result[i] = data[i] ^ ks
-
-        return bytes(result)
-
-    def _decrypt_salsa20(self, data: bytes, layer: Dict) -> bytes:
-        """Salsa20解密 - 匹配GPU OpenCL实现"""
-        key = layer.get('key')
-        nonce = layer.get('nonce')
-        
-        # 检查是否是GPU自定义实现
-        backend_info = layer.get('backend_info', '')
-        if 'GPU' in backend_info or layer.get('gpu_only', False):
-            return self._decrypt_salsa20_gpu(data, key, nonce)
-        
-        # 标准Salsa20解密
-        try:
-            from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
-            cipher = Cipher(algorithms.Salsa20(key, nonce), mode=None)
-            decryptor = cipher.decryptor()
-            return decryptor.update(data) + decryptor.finalize()
-        except:
-            return self._decrypt_salsa20_gpu(data, key, nonce)
-    
-    def _decrypt_salsa20_gpu(self, data: bytes, key: bytes, nonce: bytes) -> bytes:
-        """GPU Salsa20解密 - 与OpenCL内核完全匹配"""
-        # 确保nonce长度正确
-        if len(nonce) < 8:
-            nonce = nonce + b'\x00' * (8 - len(nonce))
-        
-        result = bytearray(len(data))
-        
-        for gid in range(len(data)):
-            byte_val = data[gid]
-            key_byte = key[gid % 32]
-            nonce_byte = nonce[gid % 8]  # Salsa20使用8字节nonce
-            
-            # 生成密钥流字节 (Salsa20风格) - 与OpenCL内核完全匹配
-            keystream = key_byte ^ nonce_byte
-            keystream ^= (gid & 0xFF)  # 位置相关
-            
-            # Salsa20的四分之一轮操作 (简化版)
-            for i in range(10):  # Salsa20/10
-                keystream = (keystream + key_byte) & 0xFF
-                keystream ^= ((keystream << 1) & 0xFF)
-                keystream = (keystream + nonce_byte) & 0xFF
-                keystream ^= ((keystream >> 1) & 0xFF)
-                keystream = (keystream + ((gid >> (i % 8)) & 0xFF)) & 0xFF
-                keystream = ((keystream << 2) | (keystream >> 6)) & 0xFF  # 旋转
-            
-            # 额外的混合 - 注意：最后一行是XOR赋值
-            keystream ^= key[(gid + 16) % 32]
-            keystream = (keystream + nonce[(gid + 4) % 8]) & 0xFF
-            keystream ^= ((keystream << 3) | (keystream >> 5)) & 0xFF  # XOR赋值
-            
-            result[gid] = byte_val ^ keystream
-        
-        return bytes(result)
-
-    def _decrypt_blowfish(self, data: bytes, layer: Dict) -> bytes:
-        """Blowfish解密"""
-        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-        from cryptography.hazmat.primitives import padding
-
-        key = layer.get('key')
-        iv = layer.get('iv')
-
-        if iv:
-            cipher = Cipher(algorithms.Blowfish(key), modes.CBC(iv))
-        else:
-            cipher = Cipher(algorithms.Blowfish(key), modes.ECB())
-
-        decryptor = cipher.decryptor()
-        padded = decryptor.update(data) + decryptor.finalize()
-        unpadder = padding.PKCS7(64).unpadder()
-        return unpadder.update(padded) + unpadder.finalize()
-
-    def _decrypt_matrix(self, data: bytes, layer: Dict) -> bytes:
-        """矩阵解密"""
-        seed = layer.get('seed', 12345)
-        original_length = layer.get('original_length', len(data))
-        matrix_size = layer.get('matrix_size', 8)
-        # 如果加密时保存了变换矩阵，直接使用
-        transform_matrix = layer.get('transform_matrix', None)
-
-        # 尝试使用numpy，如果不可用则使用纯Python
-        try:
-            import numpy as np
-            return self._decrypt_matrix_numpy(data, seed, original_length, matrix_size, transform_matrix)
-        except ImportError:
-            return self._decrypt_matrix_pure(data, seed, original_length, matrix_size, transform_matrix)
-
-    def _decrypt_matrix_numpy(self, data: bytes, seed: int, original_length: int, matrix_size: int, saved_matrix=None) -> bytes:
-        """使用numpy的矩阵解密 - 匹配GPU OpenCL加密（XOR变换）"""
-        import numpy as np
-
-        # 获取变换矩阵
-        if saved_matrix is not None:
-            transform_matrix = np.array(saved_matrix, dtype=np.uint8).flatten()
-        else:
-            np.random.seed(seed)
-            transform_matrix = np.random.randint(0, 256, (matrix_size, matrix_size), dtype=np.uint8).flatten()
-        
-        block_size = matrix_size * matrix_size
-
-        data_arr = np.frombuffer(data, dtype=np.uint8)
-        padded_len = ((len(data_arr) + block_size - 1) // block_size) * block_size
-        padded = np.zeros(padded_len, dtype=np.uint8)
-        padded[:len(data_arr)] = data_arr
-
-        result = np.zeros_like(padded)
-
-        # 逐字节解密（逆序执行加密操作）
-        for gid in range(len(padded)):
-            local_id = gid % block_size
-            row = local_id // matrix_size
-            col = local_id % matrix_size
-            
-            byte_val = padded[gid]
-            matrix_idx = (row * matrix_size + col) % block_size
-            
-            # 逆操作4: XOR matrix[(gid + row) % block_size]
-            byte_val ^= transform_matrix[(gid + row) % block_size]
-            
-            # 逆操作3: 逆旋转
-            byte_val = ((byte_val >> 3) | (byte_val << 5)) & 0xFF
-            
-            # 逆操作2: XOR (gid & 0xFF)
-            byte_val ^= (gid & 0xFF)
-            
-            # 逆操作1: XOR matrix_val
-            byte_val ^= transform_matrix[matrix_idx]
-            
-            result[gid] = byte_val
-
-        return result[:original_length].tobytes()
-
-    def _decrypt_matrix_pure(self, data: bytes, seed: int, original_length: int, matrix_size: int, saved_matrix=None) -> bytes:
-        """纯Python的矩阵解密 - 匹配GPU OpenCL加密（XOR变换）"""
-        import random
-
-        # 获取变换矩阵
-        if saved_matrix is not None:
-            if isinstance(saved_matrix, list):
-                transform_list = []
-                for row in saved_matrix:
-                    transform_list.extend(row)
-            else:
-                transform_list = list(saved_matrix.flatten())
-        else:
-            try:
-                import numpy as np
-                np.random.seed(seed)
-                transform_matrix = np.random.randint(0, 256, (matrix_size, matrix_size), dtype=np.uint8)
-                transform_list = list(transform_matrix.flatten())
-            except ImportError:
-                random.seed(seed)
-                transform_list = [random.randint(0, 255) for _ in range(matrix_size * matrix_size)]
-        
-        block_size = matrix_size * matrix_size
-
-        data_list = list(data)
-        padded_len = ((len(data_list) + block_size - 1) // block_size) * block_size
-        padded = data_list + [0] * (padded_len - len(data_list))
-
-        result = []
-
-        # 逐字节解密
-        for gid in range(len(padded)):
-            local_id = gid % block_size
-            row = local_id // matrix_size
-            col = local_id % matrix_size
-            
-            byte_val = padded[gid]
-            matrix_idx = (row * matrix_size + col) % block_size
-            
-            # 逆操作4
-            byte_val ^= transform_list[(gid + row) % block_size]
-            
-            # 逆操作3: 逆旋转
-            byte_val = ((byte_val >> 3) | (byte_val << 5)) & 0xFF
-            
-            # 逆操作2
-            byte_val ^= (gid & 0xFF)
-            
-            # 逆操作1
-            byte_val ^= transform_list[matrix_idx]
-            
-            result.append(byte_val)
-
-        return bytes(result[:original_length])
-
-    def _decrypt_rsa(self, data: bytes, layer: Dict) -> bytes:
-        """RSA解密"""
-        aes_meta = layer.get('aes_metadata', {})
-        if aes_meta and 'key' in aes_meta:
-            return self._decrypt_aes(data, aes_meta)
-        return data
-
-    def _generate_output_path(self, input_file: str, output_dir: str) -> str:
-        """生成输出路径"""
-        base = os.path.basename(input_file)
-        if base.endswith('.encrypted'):
-            base = base[:-10]
-
-        # 清理文件名
-        for suffix in ['_cpu_level', '_gpu_level', '_hybrid']:
-            if suffix in base:
-                base = base.split(suffix)[0]
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        return os.path.join(output_dir, f"{base}_decrypted_{timestamp}")
+            public, _, body = load_package(file_path)
+            layers = public.get('layers', public.get('chunk_layers', []))
+            return {'type':'v1', 'engine_type':'v1-cpu', 'security_level':public['profile'],
+                    'layers':len(layers), 'gpu_only':False,
+                    'encrypted_size':len(body), 'metadata':public}
+        except Exception as exc:
+            return {'error':str(exc), 'type':'unknown'}
 
 
 class DecryptorLauncherGUI:
@@ -443,7 +68,7 @@ class DecryptorLauncherGUI:
         # 标题
         ttk.Label(main, text="🔓 通用文件解密器",
                  font=("Arial", 20, "bold")).grid(row=0, column=0, pady=(0, 5))
-        ttk.Label(main, text="支持CPU/GPU/混合加密文件 | 自动检测加密类型",
+        ttk.Label(main, text="v1 认证恢复 | recovery.jmis 须位于密文旁边",
                  font=("Arial", 10), foreground="gray").grid(row=1, column=0, pady=(0, 15))
 
         # 文件选择
@@ -527,7 +152,7 @@ class DecryptorLauncherGUI:
         """浏览文件"""
         f = filedialog.askopenfilename(
             title="选择加密文件",
-            filetypes=[("加密文件", "*.encrypted"), ("所有文件", "*.*")]
+            filetypes=[("加密文件", "*.jmi"), ("所有文件", "*.*")]
         )
         if f:
             self.file_var.set(f)
@@ -542,7 +167,7 @@ class DecryptorLauncherGUI:
 
     def auto_find(self):
         """自动查找"""
-        files = [f for f in os.listdir('.') if f.endswith('.encrypted')]
+        files = [f for f in os.listdir('.') if f.endswith('.jmi')]
         if not files:
             messagebox.showinfo("提示", "当前目录未找到加密文件")
             return
@@ -608,7 +233,7 @@ class DecryptorLauncherGUI:
                 self.open_btn.config(state=tk.NORMAL)
                 messagebox.showinfo("成功",
                     f"解密成功!\n\n输出: {os.path.basename(result['output_file'])}\n"
-                    f"大小: {result.get('decrypted_size', 0):,} 字节")
+                    f"大小: {result.get('decrypted_size', 0):,} 字节\n{result.get('warning', '')}")
             else:
                 self.status_var.set("❌ 解密失败")
                 messagebox.showerror("失败", f"解密失败:\n{result['error']}")

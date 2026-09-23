@@ -220,8 +220,7 @@ class BatchProcessor:
         
         # 生成输出文件名
         filename = os.path.basename(file_path)
-        name, ext = os.path.splitext(filename)
-        output_filename = f"{name}.encrypted"
+        output_filename = f"{filename}.jiami"
         output_path = os.path.join(output_dir, output_filename)
         
         # 执行加密

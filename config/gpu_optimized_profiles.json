@@ -1,4 +1,5 @@
 {
+  "_status": "deprecated: legacy GPU experiment; not a v1 support matrix. Use encryption_profiles.json; GPU parity requires separate validation.",
   "encryption_profiles": {
     "high_gpu": {
       "name": "高级加密 (GPU优化)",

@@ -18,8 +18,10 @@ class TestThreadManagerPriority:
     """线程管理器优先级测试"""
     
     @pytest.fixture(autouse=True)
-    def reset_manager(self):
+    def reset_manager(self, monkeypatch):
         """每个测试前重置线程管理器"""
+        # Priority selection must not depend on the machine's CPU clamp.
+        monkeypatch.setattr(thread_manager, 'cpu_count', 8)
         thread_manager.reset_to_defaults()
         yield
         thread_manager.reset_to_defaults()
@@ -29,6 +31,12 @@ class TestThreadManagerPriority:
         status = thread_manager.get_status_info()
         assert status['max_threads'] > 0
         assert status['active_source'] == 'system_default'
+
+    def test_thread_limit_on_two_core_machine(self, monkeypatch):
+        monkeypatch.setattr(thread_manager, 'cpu_count', 2)
+        thread_manager.set_gui_config(max_threads=12)
+        assert thread_manager.get_max_threads() == 4
+        assert thread_manager.get_status_info()['active_priority'] == 'GUI_OVERRIDE'
     
     def test_config_file_priority(self):
         """测试配置文件优先级"""

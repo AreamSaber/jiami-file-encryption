@@ -17,6 +17,25 @@ class TestAlgorithmRegistry:
         from src.decryptor.algorithm_registry import AlgorithmRegistry
         registry = AlgorithmRegistry()
         assert registry is not None
+
+    def test_v1_schema_and_registry_coverage(self):
+        from src.decryptor.algorithm_registry import AlgorithmRegistry
+        from src.package_format.schema import SCHEMAS, fields_for
+        from src.exceptions import InvalidMetadataError, AlgorithmNotSupportedError
+        registry = AlgorithmRegistry()
+        # Handler canonical names differ from wire aliases (e.g. ChaCha20-CPU).
+        # Compare resolved handlers, accounting for the one explicit experiment.
+        v1_handlers = {registry.get_handler(name) for name in SCHEMAS}
+        experiment = registry.get_handler('Salsa20-GPU-ONLY')
+        registered = {registry.get_handler(name) for name in registry.list_algorithms()}
+        assert registered == v1_handlers | {experiment}
+        assert experiment not in v1_handlers
+        for name in registry._handlers.keys() - SCHEMAS.keys():
+            with pytest.raises(InvalidMetadataError, match='Unsupported algorithm'):
+                fields_for(name, {})
+        for removed in ('Salsa20', 'Salsa20-CPU', 'Salsa20-GPU', 'salsa20'):
+            with pytest.raises(AlgorithmNotSupportedError):
+                registry.get_handler(removed)
     
     def test_list_algorithms(self):
         from src.decryptor.algorithm_registry import AlgorithmRegistry
