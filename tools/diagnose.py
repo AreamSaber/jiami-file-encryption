@@ -39,8 +39,9 @@ def check_pyinstaller():
     
     # 检查命令行可用性
     try:
-        result = subprocess.run(['pyinstaller', '--version'], 
-                              capture_output=True, text=True, timeout=10)
+        result = subprocess.run(['pyinstaller', '--version'],
+                                capture_output=True, text=True, encoding='utf-8', errors='replace',
+                                env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}, timeout=10)
         if result.returncode == 0:
             print(f"  ✅ 命令行可用: {result.stdout.strip()}")
             return True
@@ -152,6 +153,8 @@ def test_simple_packaging():
     test_script = Path("test_package.py")
     test_content = '''
 import sys
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
 print("Hello from packaged app!")
 print(f"Arguments: {sys.argv}")
 '''
@@ -170,7 +173,10 @@ print(f"Arguments: {sys.argv}")
         ]
         
         print("  🔧 尝试打包...")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        # Match Python child output to the decoder; native build diagnostics may
+        # still contain non-UTF-8 bytes, which must not hide the real exit status.
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace',
+                                env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}, timeout=60)
         
         if result.returncode == 0:
             exe_path = Path('./test_dist/test_package.exe')
@@ -178,8 +184,9 @@ print(f"Arguments: {sys.argv}")
                 print("  ✅ 打包成功")
                 
                 # 测试运行
-                test_result = subprocess.run([str(exe_path), 'test'], 
-                                           capture_output=True, text=True, timeout=10)
+                test_result = subprocess.run([str(exe_path), 'test'],
+                                             capture_output=True, text=True, encoding='utf-8',
+                                             errors='replace', timeout=10)
                 if test_result.returncode == 0:
                     print("  ✅ exe运行成功")
                     print(f"  输出: {test_result.stdout.strip()}")
