@@ -1,4 +1,7 @@
 
+import threading
+
+
 class InterruptController:
     """中断控制器"""
     def __init__(self):
