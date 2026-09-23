@@ -70,10 +70,10 @@ def test_generated_program_outside_checkout(tmp_path, encryptor, profile):
     result = encryptor.encrypt_file(source, tmp_path/'packages', profile)
     assert result['success'], result
     output = tmp_path/'standalone.bin'
-    env = os.environ.copy()
+    env = dict(os.environ, PYTHONUTF8='1')
     env.pop('PYTHONPATH', None)
     proc = subprocess.run([sys.executable, result['decryptor_file'], result['encrypted_file'], str(output)],
-                          cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60)
+                          cwd=tmp_path, env=env, capture_output=True, text=True, encoding='utf-8', timeout=60)
     assert proc.returncode == 0, proc.stderr
     assert output.read_bytes() == source.read_bytes()
 

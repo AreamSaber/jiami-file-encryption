@@ -1,5 +1,5 @@
 """Operation-owned cooperative cancellation and atomic publication ordering."""
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from contextvars import ContextVar
 import signal
@@ -173,7 +173,13 @@ def run_with_sigint(operation, controller):
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix='jiami-cli') as pool:
         signal.signal(signal.SIGINT, request_once)
         try:
-            result = pool.submit(operation).result()
+            future = pool.submit(operation)
+            # Windows locks before Python 3.14 do not interrupt an indefinite
+            # Condition.wait for SIGINT. Return to Python periodically so the
+            # main thread can execute its handler while the worker is active.
+            while not future.done():
+                wait((future,), timeout=0.1)
+            result = future.result()
         finally:
             signal.signal(signal.SIGINT, previous)
     # Include a signal delivered after the worker formed its successful result

@@ -2,7 +2,8 @@
 
 Phase 2 implements the design approved by Claude, following the separately
 approved admission baseline `b10b75a45178a624c0d41525c42bca6f59c3a9c1`.
-This implementation range is pending manual review. It changes no v1 cipher,
+Claude approved Phase 2 at `e3f5a646f345d0ca3960b2be2a9e52577ea4271e`
+with no blockers. It changes no v1 cipher,
 key model, authentication order, schema bounds or no-overwrite rule.
 
 ## Interfaces and gate
@@ -74,7 +75,11 @@ cancelled attempt **130**, otherwise success **0**. A late request alone exits 0
 `main.py --cli`, enhanced CLI encrypt/batch, and newly generated `recover.py`
 install SIGINT handling around the operation. Actual work runs in one outer
 thread, leaving the main thread to request cancellation without interrupting
-worker locks or rename. A reentrancy guard makes repeated SIGINT a no-op while
+worker locks or rename. The wrapper returns from a timed future wait at most
+every 100 ms, subject to scheduling, so supported Windows Python 3.12 can execute
+its Python signal handler while the worker remains active. An indefinite wait
+can defer that handler until the operation finishes on pre-3.14 Windows.
+A reentrancy guard makes repeated SIGINT a no-op while
 the first handler acquires controller locks. The prior handler is restored on
 exit. Calls from a non-main thread cannot install a signal handler; their owner
 must request cancellation on the supplied controller. Signals before/after the
@@ -92,8 +97,10 @@ experimental GPU adapters are not new cancellation acceptance surfaces. A custom
 GPU backend may inherit boundary checks but can remain nonpreemptible. Hardware
 execution is not validated here. Existing recovery scripts/EXEs do not update
 themselves; new ones embed the authoritative cancellation module. New recovery
-EXEs retain their ordinary round-trip acceptance workflow; real Windows console
-Ctrl+C delivery needs separate native-console acceptance.
+EXEs retain their ordinary round-trip acceptance workflow. A separate
+[native console acceptance tool](windows-console-acceptance.md) exercises real
+Windows Ctrl+C events with a test-only gate/observation probe; it does not claim
+physical keyboard, Windows Terminal or uninstrumented shipping-EXE acceptance.
 
 ## Verification contract
 
