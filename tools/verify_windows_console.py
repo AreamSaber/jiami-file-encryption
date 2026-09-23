@@ -144,24 +144,33 @@ def run_case(work, entry, ordering, package, exe):
     captured = stdout.read_text(encoding='utf-8') + stderr.read_text(encoding='utf-8')
     if failure:
         raise RuntimeError(f'{entry}/{ordering}: {failure}\n{captured}') from failure
+    def check(condition, message):
+        require(condition, f'{entry}/{ordering}: {message}\n{captured}')
+
     expected = {'cancel': 130, 'publish': 0, 'conflict': 1}[ordering]
-    require(process.returncode == expected, f'{entry}/{ordering}: exit {process.returncode}, wanted {expected}\n{captured}')
+    check(process.returncode == expected, f'exit {process.returncode}, wanted {expected}')
+    stage_path_canonicalized = False
     if ordering == 'cancel':
-        require(not destination.exists(), 'Cancelled operation published output')
+        check(not destination.exists(), 'Cancelled operation published output')
         parent = case if recovering else output
         stages = list(parent.glob('.jiami-stage-*'))
-        require(len(stages) == 1 and str(stages[0]) in captured, 'Retained stage not reported')
+        # Publishers report canonical paths. Windows TEMP may use an 8.3 alias
+        # (e.g. RUNNER~1), so compare the same canonical representation.
+        check(len(stages) == 1 and str(stages[0].resolve()) in captured,
+              'Retained stage not reported: ' + repr([str(p) for p in stages]))
+        stage_path_canonicalized = str(stages[0]) != str(stages[0].resolve())
     elif ordering == 'publish':
         content = destination.read_bytes() if recovering else CPUDecryptor().decrypt_bytes(destination)[0]
-        require(content == b'native console acceptance\x00\xff', 'Completed plaintext mismatch')
-        require('too late' in captured, 'Late request warning missing')
-        require('Windows directory durability is not guaranteed' in captured, 'Durability warning missing')
+        check(content == b'native console acceptance\x00\xff', 'Completed plaintext mismatch')
+        check('too late' in captured, 'Late request warning missing')
+        check('Windows directory durability is not guaranteed' in captured, 'Durability warning missing')
     else:
         existing = destination if recovering else destination / 'keep'
-        require(existing.read_bytes() == b'preserve existing', 'Existing destination changed')
+        check(existing.read_bytes() == b'preserve existing', 'Existing destination changed')
     return {'entry': entry, 'ordering': ordering, 'status': 'passed', 'exit_code': process.returncode,
             'console_events_observed': 2, 'cancellation_requests': request['count'],
-            'embedded_runtime': recovering, 'instrumented_gate': True}
+            'embedded_runtime': recovering, 'instrumented_gate': True,
+            'stage_path_canonicalized': stage_path_canonicalized}
 
 
 def main():
