@@ -169,12 +169,13 @@ class BatchProcessor:
             try:
                 self._process_single_file(file_path, output_dir, options)
                 successful += 1
-                self._update_progress()
             except Exception as e:
                 failed += 1
                 error_msg = f"{file_path}: {str(e)}"
                 errors.append(error_msg)
                 self.logger.error(f"处理文件失败: {error_msg}")
+            finally:
+                self._update_progress()
         
         return {
             'success': failed == 0,
@@ -205,12 +206,13 @@ class BatchProcessor:
                 try:
                     future.result()
                     successful += 1
-                    self._update_progress()
                 except Exception as e:
                     failed += 1
                     error_msg = f"{file_path}: {str(e)}"
                     errors.append(error_msg)
                     self.logger.error(f"处理文件失败: {error_msg}")
+                finally:
+                    self._update_progress()
         
         return {
             'success': failed == 0,
@@ -242,7 +244,7 @@ class BatchProcessor:
             encryptor.hybrid_engine.shutdown()
     
     def _update_progress(self):
-        """更新进度显示"""
+        """Count completed attempts, including failures; outcomes stay separate."""
         with self.progress_lock:
             self.processed_count += 1
             progress = (self.processed_count / self.total_count) * 100
