@@ -113,9 +113,9 @@ def test_batch_cli_failure_exit_and_error_details(tmp_path):
     command = [sys.executable, '-m', 'cli.enhanced_cli', 'batch', '-d', str(source),
                '-o', str(tmp_path / 'out'), '--parallel', '2', '-p', 'basic']
     env = dict(os.environ, PYTHONUTF8='1')
-    first = subprocess.run(command, cwd=repo, env=env, capture_output=True, text=True, timeout=30)
+    first = subprocess.run(command, cwd=repo, env=env, capture_output=True, text=True, encoding='utf-8', timeout=30)
     assert first.returncode == 0, first.stdout + first.stderr
-    again = subprocess.run(command, cwd=repo, env=env, capture_output=True, text=True, timeout=30)
+    again = subprocess.run(command, cwd=repo, env=env, capture_output=True, text=True, encoding='utf-8', timeout=30)
     assert again.returncode == 1, again.stdout + again.stderr
     assert '0.bin' in again.stdout and "'error'" not in again.stdout
 

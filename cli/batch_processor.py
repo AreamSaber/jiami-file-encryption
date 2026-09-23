@@ -25,11 +25,13 @@ from src.thread_pool.thread_manager import thread_manager, ThreadPriority
 class BatchProcessor:
     """批处理器类"""
     
-    def __init__(self):
+    def __init__(self, *, resource_policy=None, resource_ledger=None):
         """初始化批处理器"""
         self.logger = Logger("BatchProcessor")
         # A configuration template only; concurrent tasks never use its engine.
-        self.encryptor = FileEncryptor(thread_settings=thread_manager.snapshot())
+        self.encryptor = FileEncryptor(thread_settings=thread_manager.snapshot(),
+                                       resource_policy=resource_policy, resource_ledger=resource_ledger)
+        self.resource_ledger = self.encryptor.resource_ledger
         self.file_utils = FileUtils()
         self.progress_lock = threading.Lock()
         self.processed_count = 0
@@ -235,7 +237,8 @@ class BatchProcessor:
         if inner_threads is not None:
             settings.set_config(priority=ThreadPriority.GUI_OVERRIDE,
                                 source='batch_worker_budget', max_threads=inner_threads)
-        encryptor = FileEncryptor(config_dir=self.encryptor.config_dir, thread_settings=settings)
+        encryptor = FileEncryptor(config_dir=self.encryptor.config_dir, thread_settings=settings,
+                                  resource_ledger=self.resource_ledger)
         try:
             result = encryptor.encrypt_file(file_path, output_dir, profile)
             if not result['success']:

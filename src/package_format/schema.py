@@ -83,6 +83,49 @@ def fields_for(algorithm, params):
     return method, public, secret
 
 
+def rsa_variant(input_size, key_size):
+    """The existing SHA-256 OAEP boundary, shared with the producer."""
+    return 'RSA-Hybrid' if input_size > key_size // 8 - 2 * 32 - 2 else 'RSA'
+
+
+def predicted_collection_sizes(algorithm, params, input_size):
+    """Deterministic producer collection counts; never construct their values."""
+    if algorithm == 'Final_Obfuscation':
+        return {'insertion_positions': input_size // 10
+                if params['obfuscation_level'] in ('high', 'maximum') and input_size > 10 else 0}
+    return {}
+
+
+def predicted_output_size(algorithm, params, input_size, *, insertion_count=None):
+    """Forward v1 size relations shared by admission and metadata validation.
+
+    Final-obfuscation validation uses the recorded operation count, preserving
+    the existing reader contract; admission uses the shipped producer's count.
+    Random operation values and PEM/JSON encoding lengths are not predicted.
+    """
+    if algorithm == 'AES-256':
+        return (input_size // 16 + 1) * 16 if params['mode'] == 'CBC' else input_size
+    if algorithm in ('Blowfish', 'Twofish'):
+        block = 8 if algorithm == 'Blowfish' else 16
+        return (input_size // block + 1) * block
+    if algorithm == 'Salsa20_PyNaCl':
+        return input_size + 40
+    if algorithm == 'RSA':
+        return params['key_size'] // 8
+    if algorithm == 'LSB_Steganography':
+        return input_size * 8
+    if algorithm == 'Matrix_Cipher-CPU':
+        block = params['matrix_size'] ** 2
+        return ((input_size + block - 1) // block) * block
+    if algorithm == 'Final_Obfuscation':
+        if insertion_count is None:
+            insertion_count = predicted_collection_sizes(algorithm, params, input_size)['insertion_positions']
+        return input_size + insertion_count
+    if algorithm in ('RSA-Hybrid', 'ChaCha20-CPU', 'Simple_XOR', 'Bit_Shuffle', 'Rotate_Cipher', 'Pre_Scramble'):
+        return input_size
+    raise ValueError('No size relation for algorithm variant: ' + str(algorithm))
+
+
 def validate_params(algorithm, params, input_size, output_size):
     method, public, secret = fields_for(algorithm, params)
     exact(params, public | secret)
@@ -95,15 +138,14 @@ def validate_params(algorithm, params, input_size, output_size):
         require(len(params['iv']) == (12 if params['mode'] == 'GCM' else 16), 'Invalid AES IV/counter')
         if params['mode'] == 'GCM':
             require(len(params['tag']) == 16, 'Invalid GCM tag')
-        require(output_size == ((input_size // 16 + 1) * 16 if params['mode'] == 'CBC' else input_size), 'AES length mismatch')
+        require(output_size == predicted_output_size(algorithm, params, input_size), 'AES length mismatch')
     elif algorithm == 'ChaCha20-CPU':
-        require(len(params['key']) == 32 and len(params['nonce']) == 16 and input_size == output_size, 'Invalid ChaCha20 parameters')
+        require(len(params['key']) == 32 and len(params['nonce']) == 16 and output_size == predicted_output_size(algorithm, params, input_size), 'Invalid ChaCha20 parameters')
     elif algorithm == 'Salsa20_PyNaCl':
-        require(len(params['key']) == 32 and params['encrypted_with_nonce'] is True and output_size == input_size + 40, 'Invalid SecretBox parameters')
+        require(len(params['key']) == 32 and params['encrypted_with_nonce'] is True and output_size == predicted_output_size(algorithm, params, input_size), 'Invalid SecretBox parameters')
     elif algorithm in ('Blowfish', 'Twofish'):
         require(params['key_size'] == len(params['key']) * 8, 'Key size mismatch')
-        block = 8 if algorithm == 'Blowfish' else 16
-        require(output_size == (input_size // block + 1) * block, 'Block cipher length mismatch')
+        require(output_size == predicted_output_size(algorithm, params, input_size), 'Block cipher length mismatch')
         if algorithm == 'Blowfish':
             require(4 <= len(params['key']) <= 56 and params['mode'] in ('CBC', 'ECB'), 'Invalid Blowfish parameters')
             require(params['iv'] is None if params['mode'] == 'ECB' else len(params['iv']) == 8, 'Invalid Blowfish IV')
@@ -114,24 +156,24 @@ def validate_params(algorithm, params, input_size, output_size):
                 params['private_key_pem'].startswith('-----BEGIN PRIVATE KEY-----'), 'Invalid RSA private key encoding')
         require(type(params['key_size']) is int and params['key_size'] in (2048, 3072, 4096), 'Invalid RSA key size')
         if algorithm == 'RSA':
-            require(output_size == params['key_size']//8, 'Invalid RSA ciphertext length')
+            require(output_size == predicted_output_size(algorithm, params, input_size), 'Invalid RSA ciphertext length')
         else:
             require(len(params['encrypted_aes_key']) == params['key_size']//8, 'Invalid wrapped key length')
             aes = dict(params['aes_metadata'])
             require(aes.pop('algorithm', None) == 'AES-256' and aes.get('mode') == 'GCM', 'Invalid RSA hybrid cipher')
             validate_params('AES-256', aes, input_size, output_size)
     elif algorithm == 'LSB_Steganography':
-        require(params['data_size'] == input_size and params['cover_size'] == output_size == input_size * 8, 'Invalid steganography size')
+        require(params['data_size'] == input_size and params['cover_size'] == output_size == predicted_output_size(algorithm, params, input_size), 'Invalid steganography size')
     elif algorithm == 'Simple_XOR':
-        require(input_size == output_size, 'XOR length mismatch')
+        require(output_size == predicted_output_size(algorithm, params, input_size), 'XOR length mismatch')
     elif algorithm == 'Bit_Shuffle':
         integer(params['seed'], 0, 2**64-1)
         positions = params['bit_positions']
         require(type(positions) is list and all(type(x) is int for x in positions)
-                and sorted(positions) == list(range(8)) and input_size == output_size, 'Invalid bit permutation')
+                and sorted(positions) == list(range(8)) and output_size == predicted_output_size(algorithm, params, input_size), 'Invalid bit permutation')
     elif algorithm == 'Rotate_Cipher':
         integer(params['rotation'], 0, 255)
-        require(input_size == output_size, 'Rotate length mismatch')
+        require(output_size == predicted_output_size(algorithm, params, input_size), 'Rotate length mismatch')
     elif algorithm == 'Matrix_Cipher-CPU':
         n = integer(params['matrix_size'], 1, 16)
         integer(params['seed'], 0, 2**64-1)
@@ -140,12 +182,12 @@ def validate_params(algorithm, params, input_size, output_size):
         require(type(matrix) is list and len(matrix) == n and all(type(row) is list and len(row) == n for row in matrix), 'Invalid matrix dimensions')
         require(all(type(x) is int and x in (0, 1) for row in matrix for x in row)
                 and all(sum(row) == 1 for row in matrix) and all(sum(col) == 1 for col in zip(*matrix)), 'Matrix must be a permutation')
-        require(output_size == ((input_size + n*n-1)//(n*n))*(n*n), 'Matrix length mismatch')
+        require(output_size == predicted_output_size(algorithm, params, input_size), 'Matrix length mismatch')
     elif algorithm == 'Pre_Scramble':
         rounds = integer(params['scramble_rounds'], 0, 100)
         integer(params['seed'], 0, 2**64-1)
         ops = params['operations']
-        require(type(ops) is list and len(ops) <= rounds and input_size == output_size, 'Invalid scramble operations')
+        require(type(ops) is list and len(ops) <= rounds and output_size == predicted_output_size(algorithm, params, input_size), 'Invalid scramble operations')
         for op in ops:
             require(type(op) is list and len(op) >= 2, 'Invalid operation')
             name, *args = op
@@ -162,11 +204,13 @@ def validate_params(algorithm, params, input_size, output_size):
         ops = params['applied_operations']
         require(type(ops) is list and len(ops) == integer(params['operations_count'], 0, 100), 'Invalid operation count')
         size = output_size
+        insertion_count = 0
         for op in reversed(ops):
             require(type(op) is list and len(op) == 2, 'Invalid obfuscation operation')
             name, arg = op
             if name == 'frequency_analysis_resistance':
                 require(type(arg) is list and arg == sorted(set(arg)), 'Invalid insertion positions')
+                insertion_count += len(arg)
                 for pos in arg:
                     integer(pos, 0, size - 1)
                     size -= 1
@@ -178,7 +222,8 @@ def validate_params(algorithm, params, input_size, output_size):
                 require(arg is None, 'Unexpected entropy parameter')
             else:
                 raise InvalidMetadataError('Unknown obfuscation operation')
-        require(size == input_size, 'Obfuscation length mismatch')
+        require(output_size == predicted_output_size(algorithm, params, input_size,
+                                                     insertion_count=insertion_count), 'Obfuscation length mismatch')
     return method
 
 

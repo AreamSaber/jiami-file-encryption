@@ -57,7 +57,7 @@ python3 tools/dev.py setup
 
 运行 `python main.py --gui`，在解密标签页选择 `data.jmi` 或 `.jiami` 包目录、匹配的 `recovery.jmis` 与尚不存在的还原目标。此入口调用共享读取器，不执行恢复脚本。任务完成前请等待；当前不支持安全取消。
 
-批处理使用 `python -m cli.enhanced_cli batch -d ./documents -o ./encrypted --parallel 2`。任务独享加密器和线程配置，结束后关闭线程池；线程预算不会限制内存占用。小内存主机先从一个任务开始。
+批处理使用 `python -m cli.enhanced_cli batch -d ./documents -o ./encrypted --parallel 2`。任务独享加密器和线程配置，结束后关闭线程池。内置档位在读取正文前检查可预测的大小限制，并共享内存预留账本；默认预留预算和可用内存余量均为尚未校准的 256 MiB，不是操作系统内存上限。自定义配置明确提示无准入保证并保留事后校验。配置方式与范围见 [资源准入说明](docs/resource-admission.md)。
 
 ## 开发与验证
 

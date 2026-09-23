@@ -9,12 +9,14 @@ import time
 import json
 import threading
 import multiprocessing
+import copy
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 from typing import Dict, List, Any, Optional, Callable
 from datetime import datetime
 
 from ..utils.logger import Logger
 from ..utils.crypto_utils import CryptoUtils
+from ..package_format.schema import rsa_variant, predicted_collection_sizes
 from ..thread_pool.thread_manager import thread_manager, ThreadPriority
 
 
@@ -151,7 +153,29 @@ class HybridEncryptionEngine:
         # 确保块大小合理，最小256KB
         return max(256 * 1024, optimal_chunk)
 
-    def encrypt_data(self, data: bytes, config: Dict, progress_callback=None) -> Dict:
+    def estimate_admission(self, data_size, config, *, profile=None, custom=False):
+        from src.resources.admission import estimate_admission
+        # Forecast algorithm recommendations on an independent settings snapshot.
+        # The live engine makes those same decisions when it executes the plan.
+        planner = copy.copy(self)
+        planner.thread_manager = self.thread_manager.snapshot()
+        return estimate_admission(planner, data_size, config, profile=profile, custom=custom)
+
+    def parallel_chunk_ranges(self, data_size, config):
+        layers = config.get('layers', [])
+        count = config.get('chunk_count', len(layers))
+        threads = self.thread_manager.get_max_threads()
+        count = max(1, min(4, threads)) if data_size >= 16 * 1024 * 1024 else max(1, min(count, threads, max(1, data_size)))
+        size = data_size // count
+        return [(i * size, data_size if i == count - 1 else (i + 1) * size) for i in range(count)]
+
+    def threaded_layer_shape(self, data_size, method):
+        count = self.get_optimal_thread_count(data_size, method)
+        chunk_size = (self.get_optimal_chunk_size(data_size, count)
+                      if count > 1 and data_size > self.thread_manager.get_parallel_threshold() else None)
+        return count, chunk_size
+
+    def encrypt_data(self, data: bytes, config: Dict, progress_callback=None, *, admission=None) -> Dict:
         """
         使用混合加密配置加密数据
 
@@ -164,6 +188,9 @@ class HybridEncryptionEngine:
             包含加密结果的字典
         """
         try:
+            # Direct engine callers also receive deterministic format preflight.
+            estimate = admission if admission is not None else self.estimate_admission(len(data), config)
+            estimate.check_format()
             for layer in config.get('layers', []):
                 if layer.get('method') == 'twofish':
                     __import__('src.crypto.twofish_backend')
@@ -202,7 +229,10 @@ class HybridEncryptionEngine:
             self.logger.info(f"混合加密完成，耗时: {duration:.2f}秒，策略: {encryption_strategy}")
             return result
 
-        except Exception as e:
+        except BaseException as e:
+            # Running cipher futures must finish before the caller releases its
+            # allocation reservation. Never force-terminate an inner worker.
+            self.shutdown()
             self.logger.error(f"混合加密失败: {e}")
             raise
 
@@ -217,7 +247,9 @@ class HybridEncryptionEngine:
         Returns:
             加密策略名称
         """
-        data_size = len(data)
+        return self.choose_strategy_for_size(len(data), config)
+
+    def choose_strategy_for_size(self, data_size, config):
         layers = config.get('layers', [])
 
         # 强制指定策略
@@ -270,9 +302,9 @@ class HybridEncryptionEngine:
             self.logger.debug(f"应用第 {i+1} 层加密: {method} (线程化)")
 
             # 获取最优线程数
-            thread_count = self.get_optimal_thread_count(len(encrypted_data), method)
+            thread_count, chunk_size = self.threaded_layer_shape(len(encrypted_data), method)
 
-            if thread_count > 1 and len(encrypted_data) > self.thread_manager.get_parallel_threshold():
+            if chunk_size is not None:
                 # 使用多线程处理
                 encrypted_data, layer_metadata = self._encrypt_layer_threaded(
                     encrypted_data, layer, method, thread_count
@@ -449,37 +481,15 @@ class HybridEncryptionEngine:
         并行加密 - 数据分片后用不同方法并行加密
         """
         layers = config.get('layers', [])
-        chunk_count = config.get('chunk_count', len(layers))
 
         if not layers:
             raise ValueError("未指定加密层")
 
-        # 优化分块策略 - 优先大块处理
         data_size = len(data)
         max_threads = self.thread_manager.get_max_threads()
-
-        # 对于GPU加速，使用更大的块以提高效率
-        min_gpu_chunk_size = 16 * 1024 * 1024  # 16MB最小GPU块
-
-        if data_size >= min_gpu_chunk_size:
-            # 大数据：使用较少的大块
-            optimal_chunk_count = max(1, min(4, max_threads))
-        else:
-            # 小数据：使用传统分块
-            optimal_chunk_count = max(1, min(chunk_count, max_threads, max(1, data_size)))
-
-        # 数据分片
-        chunk_size = data_size // optimal_chunk_count
-        chunks = []
-
-        for i in range(optimal_chunk_count):
-            start = i * chunk_size
-            if i == optimal_chunk_count - 1:  # 最后一片包含剩余数据
-                end = data_size
-            else:
-                end = start + chunk_size
-
-            chunks.append((i, data[start:end]))
+        ranges = self.parallel_chunk_ranges(data_size, config)
+        optimal_chunk_count = len(ranges)
+        chunks = [(i, data[start:end]) for i, (start, end) in enumerate(ranges)]
 
         # 创建线程池
         if not self.thread_pool:
@@ -905,7 +915,7 @@ class HybridEncryptionEngine:
             public_key = private_key.public_key()
 
             # RSA只能加密小数据，对于大数据使用混合加密
-            if len(data) > (key_size // 8 - 2 * hashes.SHA256().digest_size - 2):  # OAEP填充的限制
+            if rsa_variant(len(data), key_size) == 'RSA-Hybrid':  # OAEP填充的限制
                 # 生成AES密钥加密数据
                 aes_key = os.urandom(32)
                 encrypted_data, aes_metadata = self._encrypt_aes256(data, {
@@ -1296,8 +1306,10 @@ class HybridEncryptionEngine:
                 applied_operations.append(('entropy_increase', None))
 
         # 最后执行 frequency_analysis_resistance（因为它会改变数据大小）
-        if obfuscation_level in ['high', 'maximum'] and len(obfuscated_data) > 10:
-            dummy_bytes = os.urandom(len(obfuscated_data) // 10)
+        insertions = predicted_collection_sizes('Final_Obfuscation',
+            {'obfuscation_level': obfuscation_level}, len(obfuscated_data))['insertion_positions']
+        if insertions:
+            dummy_bytes = os.urandom(insertions)
             if len(dummy_bytes) > 0 and len(dummy_bytes) <= len(obfuscated_data):
                 insertion_positions = sorted(random.sample(range(len(obfuscated_data)), len(dummy_bytes)))
                 for pos, dummy_byte in zip(reversed(insertion_positions), reversed(dummy_bytes)):
