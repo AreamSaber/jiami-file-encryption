@@ -125,7 +125,7 @@ def decode_frame(frame, key=None, *, secret=False):
 
 
 def read_frame(path, *, secret=False):
-    maximum = MAX_HEADER + (0 if secret else MAX_BODY) + 82
+    maximum = MAX_HEADER + (82 if secret else MAX_BODY + 50)
     with open(path, 'rb') as stream:
         size = os.fstat(stream.fileno()).st_size
         if size > maximum:

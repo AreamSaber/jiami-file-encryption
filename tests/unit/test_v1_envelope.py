@@ -33,6 +33,35 @@ def test_frame_exact_coverage_and_lengths(secret):
         with pytest.raises(CorruptedDataError): decode_frame(changed, key, secret=secret)
 
 
+@pytest.mark.parametrize('secret', [False, True])
+def test_reader_accepts_exact_limit_and_rejects_extra_byte_before_read(tmp_path, monkeypatch, secret):
+    key = b'k' * 32
+    header, body = {'a': 1}, b'' if secret else b'payload'
+    frame = encode_frame(header, body, key, secret=secret)
+    # Use a small real frame to exercise the exact maximum without allocating GiB.
+    monkeypatch.setattr(envelope, 'MAX_HEADER', len(envelope.json_bytes(header)))
+    monkeypatch.setattr(envelope, 'MAX_BODY', len(body))
+    path = tmp_path/'frame'
+    path.write_bytes(frame)
+    assert envelope.read_frame(path, secret=secret) == frame
+    assert decode_frame(frame, key, secret=secret)[:2] == (header, body)
+    path.write_bytes(frame + b'x')
+    actual_open = open
+    class GuardedFile:
+        def __enter__(self):
+            self.stream = actual_open(path, 'rb')
+            return self
+        def __exit__(self, *args):
+            self.stream.close()
+        def fileno(self):
+            return self.stream.fileno()
+        def read(self, *args):
+            pytest.fail('Oversize input must be rejected by fstat before reading')
+    monkeypatch.setattr(envelope, 'open', lambda *a, **k: GuardedFile(), raising=False)
+    with pytest.raises(CorruptedDataError, match='exceeds supported frame size'):
+        envelope.read_frame(path, secret=secret)
+
+
 @pytest.mark.parametrize('raw', [b'{"a":1,"a":2}', b'['*17 + b'0' + b']'*17, b'{"a":NaN}', b'{"a":'])
 def test_authenticated_invalid_json_is_rejected(raw):
     key = b'k'*32

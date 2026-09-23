@@ -33,7 +33,7 @@ class KeyInjector:
         secret = base64.b64encode(recovery_bytes).decode('ascii')
         script = '''#!/usr/bin/env python3
 """PRIVATE recovery program. Contains keys; do not share this file.
-Requires cryptography, PyNaCl, pycryptodome, and twofish for applicable profiles.
+Requires cryptography, PyNaCl, and twofish for applicable profiles.
 """
 import argparse, base64, pathlib, sys, tempfile
 
@@ -82,7 +82,7 @@ def main():
             subprocess.run([sys.executable, '-m', 'PyInstaller', '--onefile', '--clean',
                             '--distpath', str(work/'dist'), '--workpath', str(work/'build'),
                             '--specpath', str(work), '--collect-all', 'cryptography',
-                            '--collect-all', 'nacl', '--collect-all', 'Crypto',
+                            '--collect-all', 'nacl',
                             '--add-binary', native.origin + ';.', str(script)], check=True)
             from src.package_format.publication import publish_file
             publish_file((work/'dist/recover.exe').read_bytes(), destination)

@@ -66,6 +66,11 @@ class AlgorithmRegistry:
     算法注册表
 
     管理所有加密/解密算法的注册和获取
+
+    v1 file support is defined by package_format.schema.SCHEMAS, not this
+    general in-process registry. Historical aliases and GPU-ONLY branches
+    remain for trusted engine experiments; the v1 reader rejects them before
+    dispatch. GPUDecryptor uses an explicitly supplied backend instead.
     """
 
     _handlers: Dict[str, AlgorithmHandler] = {}
@@ -265,21 +270,22 @@ class ChaCha20Handler(AlgorithmHandler):
 
 
 class Salsa20Handler(AlgorithmHandler):
-    """Salsa20算法处理器 - 支持标准和GPU-ONLY版本"""
+    """Historical GPU-only experiment; never a v1 file algorithm.
+
+    v1 Salsa20 profiles use SecretBoxHandler. The unused plain Salsa20 path
+    and its pycryptodome dependency are deliberately absent.
+    """
 
     @property
     def name(self) -> str:
-        return "Salsa20"
+        return "Salsa20-GPU-ONLY"
 
     @property
     def aliases(self) -> list:
-        return ["Salsa20-CPU", "Salsa20-GPU", "Salsa20-GPU-ONLY", "salsa20"]
+        return []
 
     def decrypt(self, data, params):
-        if 'GPU-ONLY' in params.get('algorithm', ''):
-            return self._decrypt_gpu_only(data, params['key'], params['nonce'])
-        from Crypto.Cipher import Salsa20
-        return Salsa20.new(key=params['key'], nonce=params['nonce']).decrypt(data)
+        return self._decrypt_gpu_only(data, params['key'], params['nonce'])
 
     def _decrypt_gpu_only(self, data: bytes, key: bytes, nonce: bytes) -> bytes:
         """GPU-ONLY 版本的 Salsa20 解密（与 OpenCL 内核匹配）"""

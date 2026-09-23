@@ -332,7 +332,6 @@ class EnhancedCLI:
         """检查依赖包"""
         dependencies = {
             'cryptography': '核心加密库',
-            'pycryptodome': '扩展加密算法',
             'PyNaCl': 'NaCl加密库',
             'Pillow': '图像处理 (隐写术)',
             'psutil': '系统信息',
