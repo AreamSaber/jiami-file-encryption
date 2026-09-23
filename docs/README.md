@@ -7,6 +7,8 @@ Start with the [project README](../README.md) and [user guide](user_guide.md).
 - [Architecture](architecture.md): the actual producer, reader and publication paths.
 - [Security design](security-redesign.md): format, trust model and failure semantics.
 - [Remote development](remote-development.md): Linux workspace, CI and manual Claude handoff.
+- [Windows acceptance](windows-acceptance.md): real recovery-EXE results and remaining desktop checks.
+- [Resource-control proposal](resource-control-design.md): memory admission and cancellation, pending architecture review.
 - [Memory measurements](memory-profile.md): bounded experiments and their limits.
 - [Review history](reviews/2026-09-23-v1-manual-review.md): historical, commit-specific findings.
 

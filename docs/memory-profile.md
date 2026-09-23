@@ -35,3 +35,55 @@ The pipeline still buffers whole inputs and transformed outputs. The 1 GiB frame
 For this host, begin with one batch worker and small representative samples. Check currently available memory; these observations are not a universal size recommendation. Thread budgeting prevents unbounded worker multiplication but does not limit total batch RAM. Do not extrapolate these rows linearly to 1 GiB. No runtime input-size policy, hard memory admission control, streaming format, or new cipher variant was introduced here.
 
 Further work should separately investigate the heavy transforms and their metadata expansion, then propose a reviewed policy or streaming format if larger workloads are required. GPU hardware, packaged Windows EXEs and folder-memory scaling remain separate validations.
+
+## Follow-up: tracing paranoid layers
+
+The subsequent resource-diagnostics branch adds `--sizes-kib`, `--trace-layers`
+and optional `--profile-calls` to the same bounded tool. Instrumentation wraps
+the real layer dispatcher only in the disposable profiling child. It records
+sizes, timings, RSS snapshots and aggregate function statistics; it never exports
+keys, insertion positions, ciphertext or recovery metadata.
+
+```bash
+.venv/bin/python tools/profile_memory.py --profiles paranoid --sizes-kib 64 120 128 1024 --trace-layers --timeout 40 --rss-limit-mib 256
+.venv/bin/python tools/profile_memory.py --profiles paranoid --sizes-kib 120 --trace-layers --profile-calls --timeout 60 --rss-limit-mib 256
+```
+
+Measured source tree: `3ed74838201a186feefad47fc622fbbe08461d91`, with the same
+producer/reader algorithms as approved commit `e417f53960423fc88667c0adfc37ef96204dae65`.
+The host still had 1,985 MiB RAM, no swap and two CPU cores; about 527 MiB was
+available at the start. Results are single observations with random operation
+choices and other services running.
+
+| Input | Observation | Peak sampled RSS |
+|---|---|---:|
+| 64 KiB | SHA-256 matched; encryption 11.149 s, recovery 12.572 s | 63.8 MiB |
+| 120 KiB | Publication completed; total 40 s limit reached during recovery | 98.1 MiB |
+| 128 KiB | Failed before publication: metadata collection limit exceeded | 96.4 MiB |
+| 1 MiB | Reached final obfuscation; total 40 s limit reached | 147.4 MiB |
+| 120 KiB with cProfile | SHA-256 matched; encryption 21.903 s, recovery 17.946 s | 98.9 MiB |
+
+The 64 KiB case spent 8.5977 s in final obfuscation, versus 0.4164 s in
+steganography. The latter expanded 65,536 bytes into 524,288 bytes. The final
+layer produced 576,716 bytes and 52,428 insertion positions.
+
+At 128 KiB, LSB expanded 131,072 bytes into 1,048,576 bytes; final obfuscation
+recorded 104,857 insertion positions. That list exceeds the existing
+`MAX_COLLECTION = 100000` limit, so recovery-metadata serialization failed after
+the expensive work. This is an observed constraint of the measured topology,
+not a newly imposed universal file-size cap. Chunk topology and other profiles
+require their own bounds.
+
+In the cProfile case, the 16.6188-second final layer spent 9.4515 seconds in its
+Python function and 6.0652 seconds in 98,304 `bytearray.insert` calls. Repeated
+middle insertions and Python byte/bit loops are concrete optimization targets.
+The LSB intermediate buffers and expanded operation-position lists also explain
+why source bytes alone are a poor working-memory estimate. These measurements
+do not attribute every RSS peak to one allocation: RSS is process-wide,
+allocators retain memory, and tracing/profiling adds overhead.
+
+No operation choice or random seed was fixed to make a case pass. The later
+120 KiB success does not erase the earlier timeout and is not a controlled speed
+comparison. Frame, JSON and collection limits were not relaxed. The proposal in
+[resource-control-design.md](resource-control-design.md) addresses early refusal
+and cancellation first; transform optimization requires a separate review.
