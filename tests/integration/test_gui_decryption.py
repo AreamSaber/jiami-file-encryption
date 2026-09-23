@@ -95,6 +95,8 @@ def test_widget_roundtrip(app, window, tmp_path, monkeypatch, folder):
         assert (target / 'empty').is_dir()
     assert win.decryption_progress.value() == 100
     assert str(target) in win.decryption_status.text()
+    if os.name == 'nt':
+        assert 'Windows directory durability is not guaranteed' in win.decryption_status.text()
     assert win.encrypt_btn.isEnabled() and win.decrypt_btn.isEnabled()
     assert not messages
 

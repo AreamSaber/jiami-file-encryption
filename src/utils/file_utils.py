@@ -6,7 +6,6 @@
 
 import os
 import shutil
-import tempfile
 from pathlib import Path
 from typing import List, Dict, Optional, Union
 
@@ -194,41 +193,6 @@ class FileUtils:
         except Exception as e:
             self.logger.error(f"查找文件失败: {e}")
             return []
-    
-    def create_temp_file(self, suffix: str = "", prefix: str = "tmp") -> str:
-        """
-        创建临时文件
-        
-        Args:
-            suffix: 文件后缀
-            prefix: 文件前缀
-            
-        Returns:
-            临时文件路径
-        """
-        try:
-            fd, temp_path = tempfile.mkstemp(suffix=suffix, prefix=prefix)
-            os.close(fd)  # 关闭文件描述符
-            return temp_path
-        except Exception as e:
-            self.logger.error(f"创建临时文件失败: {e}")
-            return ""
-    
-    def create_temp_dir(self, prefix: str = "tmp") -> str:
-        """
-        创建临时目录
-        
-        Args:
-            prefix: 目录前缀
-            
-        Returns:
-            临时目录路径
-        """
-        try:
-            return tempfile.mkdtemp(prefix=prefix)
-        except Exception as e:
-            self.logger.error(f"创建临时目录失败: {e}")
-            return ""
     
     def is_binary_file(self, file_path: Union[str, Path]) -> bool:
         """

@@ -1,325 +1,77 @@
-# 用户手册
+# Using authenticated v1
 
-本手册将详细介绍如何使用文件加密系统的各项功能。
+## Supported environments
 
-## 📋 目录
+The dependency set supports Linux with Python 3.10–3.12. Windows requires Python 3.12.4 or newer within the 3.12 series for the private staging-directory contract. NumPy is constrained below 2, so Python 3.13+ is outside this installation matrix. A C compiler is required to build the real `twofish==0.3.0` dependency. Windows CI uses Visual Studio build tools.
 
-1. [安装和设置](#安装和设置)
-2. [图形界面使用](#图形界面使用)
-3. [命令行使用](#命令行使用)
-4. [加密配置](#加密配置)
-5. [高级功能](#高级功能)
-6. [常见问题](#常见问题)
-
-## 🔧 安装和设置
-
-### 系统要求
-
-- Python 3.8 或更高版本
-- Windows 10+, Linux, 或 macOS
-- 至少 512MB 可用内存
-- 100MB 可用磁盘空间
-
-### 安装步骤
-
-1. **下载项目**
-   ```bash
-   git clone https://github.com/your-repo/file-encryption-system.git
-   cd file-encryption-system
-   ```
-
-2. **安装依赖**
-   ```bash
-   # 核心依赖
-   pip install cryptography psutil
-   
-   # GUI支持（选择其一）
-   pip install PyQt6
-   # 或
-   pip install PySide6
-   
-   # salsa20_stream 及所有含 salsa20 的配置必需；缺失则这些配置不可用
-   pip install PyNaCl
-
-   # 图像处理（可选）
-   pip install Pillow
-   ```
-
-3. **验证安装**
-   ```bash
-   python main.py --help
-   ```
-
-## 🖥️ 图形界面使用
-
-### 启动GUI
+The locked remote CPU environment uses Python 3.12 and omits Qt. From the repository, run:
 
 ```bash
-python main.py --gui
+python3 tools/dev.py setup
+.venv/bin/python tools/dev.py doctor
 ```
 
-### 主界面功能
-
-#### 文件加密标签页
-
-1. **选择文件或文件夹**
-   - 点击"浏览..."按钮选择要加密的文件或文件夹
-   - 支持单个文件或整个文件夹加密
-
-2. **选择输出目录**
-   - 点击"浏览..."按钮选择加密文件的保存位置
-
-3. **选择加密配置**
-   - 从下拉菜单中选择预定义的加密配置
-   - 可选择：basic, standard, high, stealth, paranoid
-
-4. **开始加密**
-   - 点击"开始加密"按钮
-   - 观察进度条和状态信息
-   - 加密完成后会显示结果
-
-#### 文件解密标签页
-
-- 查看可用的解密器列表
-- 获取解密说明和指导
-
-#### 设置标签页
-
-- 查看系统信息
-- 配置程序选项
-- 管理加密配置
-
-### 高级选项
-
-勾选"显示高级选项"可以访问：
-- 自定义加密参数
-- 压缩设置
-- 隐写术选项
-- 安全保护设置
-
-## 💻 命令行使用
-
-### 基础命令行模式
-
-#### 加密文件
-```bash
-python main.py --cli -i myfile.txt -o ./encrypted
-```
-
-#### 加密文件夹
-```bash
-python main.py --cli -i ./myfolder -o ./encrypted -p high
-```
-
-#### 查看可用配置
-```bash
-python main.py --cli --list-profiles
-```
-
-### 增强命令行模式
-
-#### 基础加密
-```bash
-python -m cli.enhanced_cli encrypt -i file.txt -o ./output
-```
-
-#### 批量处理
-```bash
-# 处理目录中的所有文件
-python -m cli.enhanced_cli batch -d ./documents -o ./encrypted
-
-# 递归处理子目录
-python -m cli.enhanced_cli batch -d ./documents -o ./encrypted --recursive
-
-# 并行处理（4个线程）
-python -m cli.enhanced_cli batch -d ./documents -o ./encrypted --parallel 4
-
-# 试运行（不实际加密）
-python -m cli.enhanced_cli batch -d ./documents -o ./encrypted --dry-run
-```
-
-#### 配置管理
-```bash
-# 列出所有配置
-python -m cli.enhanced_cli config --list
-
-# 显示配置详情
-python -m cli.enhanced_cli config --show standard
-
-# 创建新配置
-python -m cli.enhanced_cli config --create myconfig
-
-# 导出配置
-python -m cli.enhanced_cli config --export standard ./my_config.json
-```
-
-#### 系统信息
-```bash
-# 显示系统信息
-python -m cli.enhanced_cli info --system
-
-# 检查依赖包
-python -m cli.enhanced_cli info --dependencies
-
-# 显示可用算法
-python -m cli.enhanced_cli info --algorithms
-```
-
-#### 实用工具
-```bash
-# 性能基准测试
-python -m cli.enhanced_cli tools --benchmark ./testfile.dat
-
-# 验证文件完整性
-python -m cli.enhanced_cli tools --verify ./encrypted_file.encrypted
-
-# 生成随机密钥
-python -m cli.enhanced_cli tools --generate-key 32
-```
-
-## ⚙️ 加密配置
-
-### 预定义配置
-
-#### basic - 基础加密
-- **算法**: AES-256-GCM
-- **安全级别**: 1
-- **适用场景**: 一般文件保护
-- **性能**: 快速
-
-#### standard - 标准加密
-- **算法**: ChaCha20 + AES-256-CBC
-- **安全级别**: 2
-- **适用场景**: 平衡安全性和性能
-- **性能**: 中等
-
-#### high - 高级加密
-- **算法**: RSA-4096 + ChaCha20 + AES-256-GCM + 自定义算法
-- **安全级别**: 3
-- **适用场景**: 敏感数据保护
-- **性能**: 较慢
-
-#### stealth - 隐蔽加密
-- **算法**: AES-256-GCM + 矩阵密码 + 隐写术
-- **安全级别**: 3
-- **适用场景**: 数据隐藏和加密结合
-- **性能**: 很慢
-
-#### paranoid - 偏执级加密
-- **算法**: 多层复合加密
-- **安全级别**: 5
-- **适用场景**: 最高级别的安全保护
-- **性能**: 极慢
-
-### 自定义配置
-
-可以通过配置管理功能创建自定义配置：
+For a desktop environment, create `.venv`, then install `requirements.txt` using that virtual environment's Python. Windows commands use `.venv\Scripts\python.exe`; Linux commands below use `.venv/bin/python`.
 
 ```bash
-python -m cli.enhanced_cli config --create myconfig
+python3.12 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip setuptools wheel
+.venv/bin/python -m pip install --no-binary=twofish -r requirements.txt
+.venv/bin/python -m pip check
 ```
 
-按照提示输入：
-- 显示名称和描述
-- 安全级别
-- 加密算法
-- 可选功能（压缩、隐写术等）
+## Encrypt and recover
 
-## 🔍 高级功能
+```bash
+.venv/bin/python main.py --cli --list-profiles
+.venv/bin/python main.py --cli -i example.txt -o ./encrypted -p basic
+.venv/bin/python encrypted/example.txt.jiami/recover.py encrypted/example.txt.jiami/data.jmi ./restored.txt
+```
 
-### 大文件处理
+A directory input uses the same encryption command. Choose an output directory outside the input tree. Recovery targets must not exist. Do not overwrite or delete the originals until you have independently checked a recovered copy.
 
-系统自动优化大文件处理：
-- **分块处理**: 大文件自动分块处理
-- **内存管理**: 智能内存使用控制
-- **进度显示**: 实时进度和速度显示
-- **并行处理**: 多线程并行加密
+Each `.jiami` package contains:
 
-### 批量处理
+| Artifact | Meaning |
+|---|---|
+| `data.jmi` | Authenticated ciphertext and public metadata, including original name, size and profile |
+| `recovery.jmis` | Private keys, authentication key and recovery metadata |
+| `recover.py` | Private recovery program embedding recovery secrets |
+| `PRIVATE-README.txt` | Handling instructions |
 
-支持批量处理多个文件：
-- **模式匹配**: 使用通配符选择文件
-- **排除模式**: 排除特定文件
-- **递归处理**: 处理子目录
-- **并行执行**: 多线程并行处理
+Share only `data.jmi`. The recovery material is not password protected; disclosure exposes the keys, and loss prevents recovery. Only execute a recovery program you trust. The generated program still requires Python and the relevant native dependencies; it is not a standalone EXE.
 
-### 隐写术
+## Primary Qt interface
 
-支持将加密数据隐藏在其他文件中：
-- **图像隐写**: LSB图像隐写
-- **文本隐写**: 空白字符隐写
-- **音频隐写**: 音频LSB隐写
+Run `.venv/bin/python main.py --gui` on a desktop with PyQt6 installed. Plain `main.py` still opens the historical separate-engine interface; the changes described here apply specifically to `--gui`.
 
-### 安全保护
+On the encryption tab, choose the source, output directory and profile. On the decryption tab:
 
-解密器包含多种安全保护机制：
-- **反调试**: 检测调试器
-- **反虚拟机**: 检测虚拟环境
-- **代码混淆**: 保护程序逻辑
-- **完整性检查**: 验证文件完整性
+1. Select `data.jmi` or its `.jiami` package directory.
+2. Select the matching `recovery.jmis`, or leave its field empty to discover it next to the ciphertext.
+3. Enter the complete new destination path: a filename for file recovery or directory name for folder recovery. The save-location picker changes its parent directory; the field remains editable.
+4. Start decryption and wait for the result. The busy indicator does not claim a percentage. Existing destinations are refused; authentication failures publish no plaintext.
 
-## 🔓 解密文件
+This interface calls the shared authenticated reader and never executes a selected `recover.py`. Windows durability warnings remain visible after recovery. Close and overlapping operations are blocked until the worker finishes. Forced thread termination has been removed; safe cancellation is not yet implemented.
 
-### 使用解密器
+## Batch operations
 
-1. **找到解密器**
-   - 解密器文件位于加密输出目录
-   - 文件名格式：`原文件名_decryptor.exe`
+```bash
+.venv/bin/python -m cli.enhanced_cli batch -d ./documents -o ./encrypted --profile basic --parallel 2
+```
 
-2. **运行解密器**
-   ```bash
-   python decryptor.exe encrypted_file.encrypted output_file.txt
-   ```
+Use a separate output directory. `--parallel` must be a positive integer and is an upper request, not a promised number of simultaneous workers. Each file has its own engine and thread settings. The effective CPU thread budget caps outer workers and is divided among their inner pools. Outer orchestration threads are additional to that inner budget. All pools are closed after success or failure. A partial batch failure returns a nonzero process status and lists the failed files; successful packages remain available.
 
-3. **验证结果**
-   - 检查解密后的文件
-   - 验证文件完整性
+Thread limits do not bound memory. On a small host, start with one batch worker and representative small samples; see [memory measurements](memory-profile.md).
 
-### 解密器特点
+## Limits and failures
 
-- **自包含**: 包含所有必要的密钥和算法
-- **独立运行**: 不依赖原加密程序
-- **安全保护**: 内置多种安全机制
-- **跨平台**: 支持多种操作系统
+All 11 factory profiles use the CPU baseline. `paranoid_gpu` is a retained name, not proof of GPU execution. Missing algorithm dependencies produce explicit errors, not substitute ciphers. RSA profiles retain their existing local recovery-key model. There is no PBKDF2/Argon2 password protection or recipient-key delivery.
 
-## ❓ 常见问题
+v1 rejects legacy pickle artifacts. Migration requires a separate design and tool. The pipeline buffers complete data, and some transforms expand it. The 1 GiB frame/archive limit and 1 MiB JSON-header limit are format bounds, not safe working-memory limits.
 
-### Q: 忘记了解密器文件怎么办？
-A: 解密器文件是恢复数据的唯一方式，请务必妥善保管。建议：
-- 将解密器备份到多个位置
-- 使用云存储备份
-- 记录解密器的存放位置
+Publication uses private staging and a no-replace operation. Publication failures may retain private `.jiami-stage-*` directories for diagnosis; they can contain secrets or verified plaintext. Inspect the reported paths and remove only the failed operation's staging directory when no process is using it. There is no automatic overwrite, takeover or cross-filesystem copying. Windows does not promise power-loss durability.
 
-### Q: 可以修改加密后的文件吗？
-A: 不可以。任何修改都会导致解密失败。加密文件包含完整性检查。
+## Development diagnostics
 
-### Q: 支持哪些文件类型？
-A: 支持所有类型的文件和文件夹，包括：
-- 文档文件（PDF, DOC, TXT等）
-- 图像文件（JPG, PNG, GIF等）
-- 视频文件（MP4, AVI, MKV等）
-- 压缩文件（ZIP, RAR, 7Z等）
-- 程序文件（EXE, DLL等）
-
-### Q: 加密会压缩文件吗？
-A: 可选。某些配置包含压缩功能，可以减小文件大小。
-
-### Q: 如何提高加密速度？
-A: 可以：
-- 选择较快的加密配置（如basic）
-- 使用并行处理
-- 增加系统内存
-- 使用SSD存储
-
-### Q: 系统崩溃了怎么办？
-A: 只要解密器文件完整，就可以恢复数据。建议：
-- 定期备份解密器
-- 使用稳定的存储设备
-- 避免在加密过程中强制关机
-
-### Q: 可以在其他电脑上解密吗？
-A: 可以。解密器是自包含的，可以在任何支持Python的系统上运行。
-
----
-
-如需更多帮助，请查看 [故障排除](troubleshooting.md) 或联系技术支持。
+`main.py --help` focuses on user operations. `main.py --help-debug` exposes the historical diagnostic flags without changing their legacy behavior. Use `tools/dev.py test -- -rs` for the maintained suite; the older ad hoc `--test` mode is not an acceptance gate.

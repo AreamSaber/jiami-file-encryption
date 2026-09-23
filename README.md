@@ -39,7 +39,7 @@ python3 tools/dev.py setup
 - Twofish 使用 `twofish==0.3.0` 的真实原生实现；Python 3.12 兼容绑定位于 `src/crypto/twofish_backend.py`。Salsa20 配置使用 PyNaCl SecretBox 的具体变体。缺少依赖会明确失败，不替换成其他密码算法。
 - RSA 档位保留，私钥只存在于恢复材料中。本阶段没有收件人公钥投递，也没有 PBKDF2/Argon2 口令加密。
 - 多层和自定义混淆不代表额外安全强度；隐写层不保证密文不可识别。
-- GPU 后端仅保留显式适配接口；旧实验内核不会自动用于 v1。GPU 真机、完整桌面 GUI 和 Windows EXE 尚需单独验收。
+- GPU 后端仅保留显式适配接口；旧实验内核不会自动用于 v1。主 Qt 窗口（`main.py --gui`）支持真实文件/目录恢复，并有离屏控件测试；原生桌面交互、GPU 真机和 Windows EXE 仍需单独验收。
 
 ## 格式和文件保护
 
@@ -53,6 +53,12 @@ python3 tools/dev.py setup
 
 本版本的引擎在内存中工作：单帧密文/目录归档上限 1 GiB，单个 JSON 头上限 1 MiB。这不是流式大文件实现，实际可处理规模取决于内存及档位膨胀比例；长操作记录可能先达到头大小限制。
 
+## Qt 解密与批处理
+
+运行 `python main.py --gui`，在解密标签页选择 `data.jmi` 或 `.jiami` 包目录、匹配的 `recovery.jmis` 与尚不存在的还原目标。此入口调用共享读取器，不执行恢复脚本。任务完成前请等待；当前不支持安全取消。
+
+批处理使用 `python -m cli.enhanced_cli batch -d ./documents -o ./encrypted --parallel 2`。任务独享加密器和线程配置，结束后关闭线程池；线程预算不会限制内存占用。小内存主机先从一个任务开始。
+
 ## 开发与验证
 
 完整 CPU 测试使用 `.venv/bin/python tools/dev.py test`。`test-core` 只是配置/异常子集。GPU 设备缺失的测试应明确记录跳过原因；Linux 通过不代表 Windows EXE、GPU 或 GUI 已通过。
@@ -61,7 +67,7 @@ python3 tools/dev.py setup
 - [v1 协议、信任模型与发布约定](docs/security-redesign.md)
 - [远程开发与人工 Claude 交接](docs/remote-development.md)
 
-`docs/` 中其余历史手册、根目录历史调试/打包脚本可能仍描述旧格式；不能作为 v1 支持承诺或旧文件迁移工具。以本页和上述三份文档为准。
+更新后的 [用户指南](docs/user_guide.md)、[开发指南](docs/developer_guide.md) 和 [内存测量](docs/memory-profile.md) 对应当前实现。其余历史文档和根目录调试/打包脚本不能作为 v1 支持承诺或旧文件迁移工具。
 
 ## 许可证
 

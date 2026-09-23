@@ -29,3 +29,11 @@ v1 默认 CPU 路径；AES GCM/CBC/CTR、ChaCha20、PyNaCl SecretBox、Blowfish�
 本次实现使用独立 worktree，保留 Claude 原有 checkout。打开对应实现 worktree 的 `jiami-remote.code-workspace` 即可开发。GitHub PR 保存可审查提交，不自动合并。Windows GUI/GPU 按相同提交另验，不做双向实时同步。
 
 协议与信任模型见 [安全重构决策](security-redesign.md)。
+
+## 批量任务与 Qt 工作线程
+
+BatchProcessor 的 FileEncryptor 只作为配置模板。每个文件任务获得独立的线程配置快照与加密器，在 finally 中关闭自己的线程池。外层任务数受请求值、文件数和有效线程预算共同限制；每个内层池分配预算的整数份额。外层调度线程不包含在内层预算中；这不是内存上限。其他入口仍保留全局线程管理器的兼容默认行为。
+
+主 Qt 窗口的解密入口直接使用 CPUDecryptor 处理 data.jmi/包目录与 recovery.jmis，不执行恢复脚本。窗口一次只运行一个任务，收到真实 QThread.finished 后才释放引用与恢复操作按钮；关闭期间不会强行终止写入线程。当前没有安全取消或流式进度百分比。
+
+旧的 LargeFileProcessor、MemoryManager、ProgressTracker、InterruptController 和未使用的临时文件辅助方法已移除。它们没有接入 v1 发布流程，不能作为流式大文件支持依据。实际测量见 [内存记录](memory-profile.md)。
